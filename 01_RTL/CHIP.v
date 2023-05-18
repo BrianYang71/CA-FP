@@ -204,6 +204,46 @@ module type_ctrl(
     end
 endmodule
 
+module ALU(
+    input clk,
+    input rst_n,
+    input [31:0] rs1_input,
+    input [31:0] rs2_input,
+    input [3:0] alu_ctrl,
+    output [31:0] result_out,
+    output alu_ready
+);
+    reg [31:0] alu_result;
+    wire [63:0] muldiv_result;
+    wire valid;
+    wire mode;
+    wire ready;
+
+    assign alu_ready = (alu_ctrl == `MUL) ? ready : 1;
+    assign result_out = (alu_ready) ? alu_result : 0;
+
+    // valid, mode, ready(in module MulDiv)
+    assign valid = (alu_ctrl == `MUL);
+    assign mode = 0;
+
+    MULDIV_unit muldiv(
+    .clk(clk),
+    .rst_n(rst_n),
+    .valid(valid),
+    .mode(mode),
+    .A_input(rs1_input),
+    .B_input(rs2_input),
+    .ready(ready),
+    .mul_output(muldiv_result) 
+    );
+
+    always @(*) begin
+        case(alu_ctrl)
+            `
+
+
+endmodule
+
 module ALUControl(
     input   [6:0]   opcode,
     input   [2:0]   funct3,
@@ -217,30 +257,21 @@ module ALUControl(
                     alu_ctrl = `MUL;
                 else begin
                     case(funct3)
-                        3'b000: alu_ctrl = funct7 == 0 ? `ADD : `SUB;
-                        3'b001: alu_ctrl = `SLL;
-                        3'b010: alu_ctrl = `SLT;
-                        3'b011: alu_ctrl = `SLTU;
+                        3'b000: alu_ctrl = (funct7 == 0 ? `ADD : `SUB);
                         3'b100: alu_ctrl = `XOR;
-                        3'b101: alu_ctrl = funct7 == 0 ? `SRL : `SRA;
-                        3'b110: alu_ctrl = `OR;
                         3'b111: alu_ctrl = `AND;
                     endcase
                 end
             end
             `I_TYPE : begin
                 case(funct3)
-                    3'b000: alu_ctrl = `ADD;    // addi
-                    3'b001: alu_ctrl = `SLL;    // slli
-                    3'b010: alu_ctrl = `SLT;    // slti
-                    3'b011: alu_ctrl = `SLTU;   // sltiu
-                    3'b100: alu_ctrl = `XOR;    // xori
-                    3'b101: alu_ctrl = funct7 == 0 ? `SRL : `SRA; // srli, srai
-                    3'b110: alu_ctrl = `OR;     // or
-                    3'b111: alu_ctrl = `AND;    // andi
+                    3'b000: alu_ctrl = `ADDI;   
+                    3'b010: alu_ctrl = `SLTI;    
+                    3'b001: alu_ctrl = `SLLI;    
+                    3'b101: alu_ctrl = `SRAI;
                 endcase
             end
-            `B_TYPE : alu_ctrl = `SUB; // beq
+            // `B_TYPE : alu_ctrl = `SUB; // beq
             default: alu_ctrl = `ADD;
         endcase
     end
@@ -294,7 +325,14 @@ endmodule
 
 module MULDIV_unit(
     // TODO: port declaration
-    
+    input clk,
+    input rst_n,
+    input valid,
+    input mode,
+    input [31:0] A_input,
+    input [31:0] B_input,
+    output ready,
+    output [63:0] mul_output
     );
     // Todo: HW2
 

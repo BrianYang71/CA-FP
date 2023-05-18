@@ -1,3 +1,4 @@
+// hihi
 //----------------------------- DO NOT MODIFY THE I/O INTERFACE!! ------------------------------//
 module CHIP #(                                                                                  //
     parameter BIT_W = 32                                                                        //

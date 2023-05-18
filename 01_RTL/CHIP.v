@@ -1,4 +1,3 @@
-// hihi
 //----------------------------- DO NOT MODIFY THE I/O INTERFACE!! ------------------------------//
 module CHIP #(                                                                                  //
     parameter BIT_W = 32                                                                        //
@@ -51,13 +50,13 @@ module CHIP #(                                                                  
     Reg_file reg0(               
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
-        .wen    (),          
-        .rs1    (),                
-        .rs2    (),                
-        .rd     (),                 
-        .wdata  (),             
-        .rdata1 (),           
-        .rdata2 ()
+        .wen    (wen),          
+        .rs1    (rs1),                
+        .rs2    (rs2),                
+        .rd     (rd),                 
+        .wdata  (wdata),             
+        .rdata1 (rdata1),           
+        .rdata2 (rdata2)
     );
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------

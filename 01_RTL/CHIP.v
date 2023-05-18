@@ -24,7 +24,39 @@ module CHIP #(                                                                  
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 
     // TODO: any declaration
+    // Constants
 
+// RISC-V format
+`define R_TYPE 7'b0110011 // arithmatic/logical ops
+`define I_TYPE 7'b0010011 // immediates
+`define I_JALR 7'b1100111
+`define I_LOAD 7'b0000011
+`define S_TYPE 7'b0100011 // store
+`define B_TYPE 7'b1100011 // branch
+`define U_TYPE 7'b0010111 // upper immediates
+`define UJ_JAL 7'b1101111
+
+// ALUCtrl signal
+`define ADD  4'b0000
+`define ADDI  4'b0001
+`define SUB  4'b0010
+`define SLTI  4'b0011
+`define SLLI  4'b0100
+`define SRAI  4'b0101
+`define XOR  4'b0110
+`define AND  4'b0111
+`define MUL  4'b1000
+
+// MemtoReg
+`define MEM2REG_PC_PLUS_4 2'b00
+`define MEM2REG_ALU 2'b01
+`define MEM2REG_MEM 2'b10
+`define MEM2REG_PC_PLUS_IMM 2'b11
+
+// PCCtrl
+`define PCCTRL_PC_PLUS_IMM 2'b00
+`define PCCTRL_RS1_PLUS_IMM 2'b01
+`define PCCTRL_PC_PLUS_4 2'b10
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Wires and Registers
@@ -73,6 +105,147 @@ module CHIP #(                                                                  
             PC <= next_PC;
         end
     end
+endmodule
+
+module type_ctrl(
+    input   [6:0]   opcode,
+    output  reg   is_branch,
+    output  reg   [1:0] mem_to_reg,
+    output  reg   [1:0] pc_ctrl,
+    output  reg   mem_read,
+    output  reg   mem_write,
+    output  reg   alu_src,
+    output  reg   reg_write
+);
+    always @(*) begin
+        case(opcode)
+            `R_TYPE : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_ALU;
+                pc_ctrl     = `PCCTRL_PC_PLUS_4;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = `FROM_RS2;
+                reg_write   = 1;
+            end
+            `I_TYPE : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_ALU;
+                pc_ctrl     = `PCCTRL_PC_PLUS_4;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = `FROM_IMM;
+                reg_write   = 1;
+            end
+            `I_JALR : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_PC_PLUS_4;
+                pc_ctrl     = `PCCTRL_RS1_PLUS_IMM;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = `FROM_IMM;
+                reg_write   = 1;
+            end
+            `I_LOAD : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_MEM;
+                pc_ctrl     = `PCCTRL_PC_PLUS_4;
+                mem_read    = 1;
+                mem_write   = 0;
+                alu_src     = `FROM_IMM;
+                reg_write   = 1;
+            end
+            `S_TYPE : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_MEM;
+                pc_ctrl     = `PCCTRL_PC_PLUS_4;
+                mem_read    = 0;
+                mem_write   = 1;
+                alu_src     = `FROM_IMM;
+                reg_write   = 0;
+            end
+            `B_TYPE : begin
+                is_branch   = 1;
+                mem_to_reg  = `MEM2REG_ALU;
+                pc_ctrl     = `PCCTRL_PC_PLUS_IMM;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = `FROM_RS2;
+                reg_write   = 0;
+            end
+            `U_TYPE : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_PC_PLUS_IMM;
+                pc_ctrl     = `PCCTRL_PC_PLUS_4;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = `FROM_RS2;
+                reg_write   = 1;
+            end
+            `UJ_JAL : begin
+                is_branch   = 0;
+                mem_to_reg  = `MEM2REG_PC_PLUS_4;
+                pc_ctrl     = `PCCTRL_PC_PLUS_IMM;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = `FROM_IMM;
+                reg_write   = 1;
+            end
+            default : begin
+                is_branch   = 0;
+                mem_to_reg  = 0;
+                pc_ctrl     = 0;
+                mem_read    = 0;
+                mem_write   = 0;
+                alu_src     = 0;
+                reg_write   = 0;
+            end
+        endcase
+    end
+endmodule
+
+module ALUControl(
+    input   [6:0]   opcode,
+    input   [2:0]   funct3,
+    input   [6:0]   funct7,
+    output  reg [3:0]   alu_ctrl
+);
+    always @(*) begin 
+        case(opcode)
+            `R_TYPE : begin
+                if(funct7 == 7'b0000001)
+                    alu_ctrl = `MUL;
+                else begin
+                    case(funct3)
+                        3'b000: alu_ctrl = funct7 == 0 ? `ADD : `SUB;
+                        3'b001: alu_ctrl = `SLL;
+                        3'b010: alu_ctrl = `SLT;
+                        3'b011: alu_ctrl = `SLTU;
+                        3'b100: alu_ctrl = `XOR;
+                        3'b101: alu_ctrl = funct7 == 0 ? `SRL : `SRA;
+                        3'b110: alu_ctrl = `OR;
+                        3'b111: alu_ctrl = `AND;
+                    endcase
+                end
+            end
+            `I_TYPE : begin
+                case(funct3)
+                    3'b000: alu_ctrl = `ADD;    // addi
+                    3'b001: alu_ctrl = `SLL;    // slli
+                    3'b010: alu_ctrl = `SLT;    // slti
+                    3'b011: alu_ctrl = `SLTU;   // sltiu
+                    3'b100: alu_ctrl = `XOR;    // xori
+                    3'b101: alu_ctrl = funct7 == 0 ? `SRL : `SRA; // srli, srai
+                    3'b110: alu_ctrl = `OR;     // or
+                    3'b111: alu_ctrl = `AND;    // andi
+                endcase
+            end
+            `B_TYPE : alu_ctrl = `SUB; // beq
+            default: alu_ctrl = `ADD;
+        endcase
+    end
+    
+
 endmodule
 
 module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);

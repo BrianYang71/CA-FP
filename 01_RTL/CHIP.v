@@ -207,8 +207,8 @@ endmodule
 module ALU(
     input clk,
     input rst_n,
-    input [31:0] rs1_input,
-    input [31:0] rs2_input,
+    input [31:0] A_input,
+    input [31:0] B_input,
     input [3:0] alu_ctrl,
     output [31:0] result_out,
     output alu_ready
@@ -227,21 +227,30 @@ module ALU(
     assign mode = 0;
 
     MULDIV_unit muldiv(
-    .clk(clk),
-    .rst_n(rst_n),
-    .valid(valid),
-    .mode(mode),
-    .A_input(rs1_input),
-    .B_input(rs2_input),
-    .ready(ready),
-    .mul_output(muldiv_result) 
+        .clk(clk),
+        .rst_n(rst_n),
+        .valid(valid),
+        .mode(mode),
+        .A_input(A_input),
+        .B_input(B_input),
+        .ready(ready),
+        .mul_output(muldiv_result) 
     );
 
     always @(*) begin
         case(alu_ctrl)
-            `
-
-
+            `ADD : alu_result = A_input + B_input;
+            `SUB : alu_result = A_input - B_input;
+            `XOR : alu_result = A_input ^ B_input; 
+            `AND : alu_result = A_input & B_input;
+            `ADDI : alu_result = A_input + B_input;
+            `SLTI : alu_result = (A_input < B_input) ? 1 : 0;
+            `SLLI : alu_result = A_input << B_input;
+            `SRAI : alu_result = $signed(A_input) >>> $signed(B_input);
+            `MUL : alu_result = muldiv_result[31:0];
+            default : alu_result = 0;
+        endcase
+    end
 endmodule
 
 module ALUControl(
@@ -335,7 +344,72 @@ module MULDIV_unit(
     output [63:0] mul_output
     );
     // Todo: HW2
+    parameter IDLE = 2'd0;
+    parameter MUL_state = 2'd1;
+    parameter OUT = 2'd2;
 
+    reg [1:0] state, next_state;
+    reg [4:0] counter, next_counter;
+    reg [31:0] first;
+    reg [63:0] shift_reg, next_shift_reg;
+    reg [64:0] buffer;
+
+
+    assign mul_output = shift_reg;
+    assign ready = (state==OUT) ? 1 : 0;
+
+    // STATE
+    always @(*) begin
+        case(state)
+            IDLE : begin
+                if(valid) next_state = MUL;
+                else next_state = IDLE;
+            end
+            MUL : next_state = (counter==31) ? OUT : MUL; 
+            OUT : next_state = IDLE;
+            default : next_state = IDLE;
+        endcase
+    end    
+
+    // COUNTER
+    always @(*) begin
+        if(state==MUL) next_counter = counter + 1;
+        else next_counter = 0;
+    end
+
+    // ALU output
+    always @(*) begin
+        first = (shift_reg[0])?(B_input):(32'b0);
+    end
+
+    // Shift Register
+    always @(*) begin
+        case(state)
+            IDLE : begin
+                if(valid) next_shift_reg = {32'b0, A_input};
+                else next_shift_reg = 0;
+            end
+            MUL : begin
+                buffer = ({first, 32'b0} + shift_reg) >> 1;
+                next_shift_reg = buffer[63:0];
+            end
+            default : next_state = IDLE;
+        endcase
+    end
+
+    // Sequential always block
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state <= IDLE;
+            counter <= 0;
+            shift_reg <= 0;
+        end
+        else begin
+            state <= next_state;
+            counter <= next_counter;
+            shift_reg <= next_shift_reg;
+        end
+    end
 
 endmodule
 

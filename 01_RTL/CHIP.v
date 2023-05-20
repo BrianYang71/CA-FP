@@ -46,6 +46,10 @@ module CHIP #(                                                                  
 `define XOR  4'b0110
 `define AND  4'b0111
 `define MUL  4'b1000
+`define BEQ 3'b000
+`define BNE 3'b001
+`define BLT 3'b100
+`define BGE 3'b101
 
 // MemtoReg
 `define MEM2REG_PC_PLUS_4 2'b00
@@ -94,16 +98,12 @@ module CHIP #(                                                                  
         wire [31:0] rs2_data;
         wire [31:0] rd_data;
 
-
-
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 
     // TODO: any wire assignment
         assign PC = o_IMEM_addr;
-        assign mem_wdata = rs2_data;
-        assign mem_rdata = rd_data;
 
     // Instruction associated
         assign rs1 = i_IMEM_data[19:15];
@@ -120,6 +120,9 @@ module CHIP #(                                                                  
 
     // Type Control associated
         assign mem_wen = reg_write;
+
+    // B-type Jump associated
+        wire jump_or_not;
 
     // ALU Control & ALU associated
         wire [3:0] alu_ctrl;
@@ -154,6 +157,13 @@ module CHIP #(                                                                  
         .reg_write(reg_write)
     );
 
+    B_type_jump b_type_jump(
+        .A_input(rs1_data),
+        .B_input(rs2_data),
+        .funct3(funct3),
+        .jump_or_not(jump_or_not)
+    );
+
     ALU alu(
         .clk(i_clk),
         .rst_n(i_rst_n),
@@ -166,7 +176,7 @@ module CHIP #(                                                                  
 
     ALUControl alu_C(
         .opcode(opcode),
-        .funct3(funct3),
+        .funct3(funct3),nch
         .funct7(funct7),
         .alu_ctrl(alu_ctrl)
     );
@@ -190,10 +200,22 @@ module CHIP #(                                                                  
         case(mem_to_reg)
             `MEM2REG_PC_PLUS_4 : rd_data = PC + 4;
             `MEM2REG_ALU : rd_data = result_out;
-            `MEM2REG_MEM : rd_data = i_DMEM_rdata;
+            `MEM2REG_MEM : rd_data = (mem_write) ? i_DMEM_rdata : 0 ; // lw
             `MEM2REG_PC_PLUS_IMM : rd_data = PC + {U_type_imm, 12'b0};
             default : rd_data = 0;
         endcase
+    end
+
+    // Choosing data saving into reg
+    always @(*) begin
+        if(mem_write) begin
+            o_DMEM_addr = rs1_data + {20'b0, S_type_imm};
+            o_DMEM_wdata = rs2_data;
+        end
+        else begin
+            o_DMEM_addr = 0;
+            o_DMEM_wdata = 0; 
+        end
     end
 
     // PC value 
@@ -201,8 +223,14 @@ module CHIP #(                                                                  
         if(alu_ready)
             case(pc_ctrl)
                 `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
-                `PCCTRL_PC_PLUS_IMM : next_PC = (opcode == `B_TYPE) ? (PC + {19'b0, B_type_imm}) : (C + {11'b0, J_type_imm});
+
+                `PCCTRL_PC_PLUS_IMM : begin
+                    if(opcode == `B_TYPE) next_PC = (jump_or_not) ? (PC + {19'b0, B_type_imm}) : (PC + 4);
+                    else if(opcode == `UJ_JAL) next_PC = (PC + {11'b0, J_type_imm});
+                end
+
                 `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {20'b0, I_type_imm};
+
                 default : next_PC = PC;
             endcase
         end
@@ -268,6 +296,7 @@ endmodule
 
 module type_ctrl(
     input   [6:0]   opcode,
+    output  reg   jump,  // B-type checking whether jumping or not
     output  reg   [1:0] mem_to_reg,
     output  reg   [1:0] pc_ctrl,
     output  reg   mem_read,
@@ -353,6 +382,23 @@ module type_ctrl(
     end
 endmodule
 
+module B_type_jump(
+    input [31:0] A_input;
+    input [31:0] B_input;
+    input [2:0] funct3;
+    output jump_or_not
+);
+    always @(*) begin
+        case(funct3)
+            `BEQ : jump_or_not = (A_input == B_input) ? 1 : 0;
+            `BNE : jump_or_not = (A_input != B_input) ? 1 : 0;
+            `BLT : jump_or_not = (A_input < B_input) ? 1 : 0;
+            `BGE : jump_or_not = (A_input >= B_input) ? 1 : 0;
+            default : jump_or_not = 0;
+        endcase
+    end     
+endmodule
+
 module ALU(
     input clk,
     input rst_n,
@@ -429,7 +475,6 @@ module ALUControl(
                     3'b101: alu_ctrl = `SRAI;
                 endcase
             end
-            // `B_TYPE : alu_ctrl = `SUB; // beq
             default: alu_ctrl = `ADD;
         endcase
     end

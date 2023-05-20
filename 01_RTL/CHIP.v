@@ -119,7 +119,7 @@ module CHIP #(                                                                  
         assign J_type_imm = {i_IMEM_data[31], i_IMEM_data[19:12], i_IMEM_data[20], i_IMEM_data[30:21], 1'b0};
 
     // Type Control associated
-        assign mem_wen = reg_write;
+        assign o_DMEM_wen = reg_write;
 
     // B-type Jump associated
         wire jump_or_not;
@@ -138,7 +138,7 @@ module CHIP #(                                                                  
     Reg_file reg0(               
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
-        .wen    (mem_wen),          
+        .wen    (o_DMEM_wen),          
         .rs1    (rs1),                
         .rs2    (rs2),                
         .rd     (rd),                 

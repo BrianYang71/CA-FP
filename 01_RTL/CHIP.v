@@ -66,6 +66,15 @@ module CHIP #(                                                                  
 `define FROM_RS2 0
 `define FROM_IMM 1
 
+//Top FSM
+`define s_IDLE 3'd0
+`define s_INSTRU 3'd1
+`define s_MEMORY 3'd2
+`define s_WRITE 3'd3
+`define s_READ 3'd4
+`define s_OUT 3'd5
+
+
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Wires and Registers
@@ -78,6 +87,10 @@ module CHIP #(                                                                  
         wire mem_stall;
         reg o_DMEM_addr_reg;
         reg o_DMEM_wdata_reg;
+        reg o_IMEM_cen_reg;
+        reg o_DMEM_cen_reg;
+        //reg o_DMEM_wen_reg;
+        reg [2:0] s, next_s;
 
     // Instruction associated
         wire [4:0] rs1;
@@ -113,6 +126,9 @@ module CHIP #(                                                                  
         assign o_IMEM_addr = PC;
         assign o_DMEM_addr = o_DMEM_addr_reg;
         assign o_DMEM_wdata = o_DMEM_wdata_reg;
+        assign o_IMEM_cen = o_IMEM_cen_reg;
+        assign o_DMEM_cen = o_DMEM_cen_reg;
+        //assign o_DMEM_wen = o_DMEM_wen_reg;
 
 
     // Instruction associated
@@ -130,6 +146,7 @@ module CHIP #(                                                                  
 
     // Type Control associated
         assign o_DMEM_wen = reg_write;
+        
 
     // B-type Jump associated
         wire jump_or_not;
@@ -206,6 +223,49 @@ module CHIP #(                                                                  
             PC <= next_PC;
         end
     end
+
+    always @(posedge i_clk or negedge i_rst_n) begin
+        if (!i_rst_n) begin
+            s <= s_IDLE;
+        end
+        else begin
+            s <= next_s;
+        end
+    end
+    //FSM for the top level
+    always @(*) begin
+        case(s)
+            s_IDLE : begin
+                o_IMEM_cen_reg = 1;
+                next_s = s_INSTRU;
+            end
+            s_INSTRU : begin
+                next_s = (mem_to_reg  == `MEM2REG_MEM) ? s_MEMORY : s_OUT;
+                o_DMEM_cen_reg = 1;
+            end
+            s_MEMORY : begin
+                next_s = (mem_read) ? s_READ : s_WRITE;
+            end
+            s_WRITE : begin
+                if(i_DMEM_stall == 0) begin
+                    next_s = s_OUT;
+                end
+                else begin
+                    next_s = s_WRITE;
+                end
+            end
+            s_READ :  begin
+                if(i_DMEM_stall == 0) begin
+                    next_s = s_OUT;
+                end
+                else begin
+                    next_s = s_READ;
+                end
+            end
+            s_OUT : next_s = s_IDLE;
+            default : next_s = s_IDLE;
+        endcase
+    end
     
     // Choosing data written into reg
     always @(*) begin
@@ -221,7 +281,7 @@ module CHIP #(                                                                  
     // Choosing data saving into reg
     always @(*) begin
         if(mem_write) begin
-            o_DMEM_addr_reg = rs1_data + {20'b0, S_type_imm};
+            o_DMEM_addr_reg = rs1_data + {20{S_type_imm[11]}, S_type_imm};
             o_DMEM_wdata_reg = rs2_data;
         end
         else begin
@@ -237,11 +297,11 @@ module CHIP #(                                                                  
                 `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
 
                 `PCCTRL_PC_PLUS_IMM : begin
-                    if(opcode == `B_TYPE) next_PC = (jump_or_not_reg_1) ? (PC + {19'b0, B_type_imm}) : (PC + 4);
-                    else if(opcode == `UJ_JAL) next_PC = (PC + {11'b0, J_type_imm});
+                    if(opcode == `B_TYPE) next_PC = (jump_or_not_reg_1) ? (PC + {19{B_type_imm[12]}, B_type_imm}) : (PC + 4);
+                    else if(opcode == `UJ_JAL) next_PC = (PC + {11{J_type_imm[20]}, J_type_imm});
                 end
 
-                `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {20'b0, I_type_imm};
+                `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {20{I_type_imm[11]}, I_type_imm};
 
                 default : next_PC = PC;
             endcase
@@ -254,7 +314,7 @@ module CHIP #(                                                                  
     // ALU input
     always @(*) begin
         case(alu_src)
-            `FROM_RS2 : alu_B_input = {20'b0, I_type_imm};
+            `FROM_RS2 : alu_B_input = {20{I_type_imm[11]}, I_type_imm};
             `FROM_IMM : alu_B_input = rs2_data;
             default : alu_B_input = 0;
         endcase

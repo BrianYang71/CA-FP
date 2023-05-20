@@ -64,15 +64,69 @@ module CHIP #(                                                                  
     
     // TODO: any declaration
         reg [BIT_W-1:0] PC, next_PC;
-        wire mem_cen, mem_wen;
+        wire mem_cen, mem_wen; // mem_cen先不管(cache)
         wire [BIT_W-1:0] mem_addr, mem_wdata, mem_rdata;
         wire mem_stall;
+
+    // Instruction associated
+        wire [4:0] rs1;
+        wire [4:0] rs2;
+        wire [4:0] rd;
+        wire [6:0] opcode;
+        wire [2:0] funct3;
+        wire [6:0] funct7;
+        wire [11:0] I_type_imm;
+        wire [11:0] S_type_imm;
+        wire [12:0] B_type_imm; 
+        wire [19:0] U_type_imm;
+        wire [20:0] J_type_imm; 
+
+    // Type Control associated
+        wire is_branch;
+        wire [1:0] mem_to_reg;
+        wire [1:0] pc_ctrl;
+        wire mem_read;
+        wire mem_write;
+        wire alu_src;
+        wire reg_write;
+
+    // Memory associated
+        wire [31:0] rs1_data;
+        wire [31:0] rs2_data;
+        wire [31:0] rd_data;
+
+
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 
     // TODO: any wire assignment
+        assign PC = o_IMEM_addr;
+        assign mem_wdata = rs2_data;
+        assign mem_rdata = rd_data;
+
+    // Instruction associated
+        assign rs1 = i_IMEM_data[19:15];
+        assign rs2 = i_IMEM_data[24:20];
+        assign rd = i_IMEM_data[11:7];
+        assign opcode = i_IMEM_data[6:0];
+        assign funct3 = i_IMEM_data[14:12];
+        assign funct7 = i_IMEM_data[31:25];
+        assign I_type_imm = i_IMEM_data[31:20];
+        assign S_type_imm = {i_IMEM_data[31:25], i_IMEM_data[11:7]};
+        assign B_type_imm = {i_IMEM_data[31], i_IMEM_data[7], i_IMEM_data[30:25], i_IMEM_data[11:8], 1'b0};
+        assign U_type_imm = i_IMEM_data[31:12];
+        assign J_type_imm = {i_IMEM_data[31], i_IMEM_data[19:12], i_IMEM_data[20], i_IMEM_data[30:21], 1'b0};
+
+    // Type Control associated
+        assign mem_wen = reg_write;
+
+    // ALU Control & ALU associated
+        wire [3:0] alu_ctrl;
+        wire [31:0] result_out;
+        wire alu_ready; 
+        reg [31:0] alu_B_input;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -82,13 +136,13 @@ module CHIP #(                                                                  
     Reg_file reg0(               
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
-        .wen    (wen),          
+        .wen    (mem_wen),          
         .rs1    (rs1),                
         .rs2    (rs2),                
         .rd     (rd),                 
-        .wdata  (wdata),             
-        .rdata1 (rdata1),           
-        .rdata2 (rdata2)
+        .wdata  (rd_data),             
+        .rdata1 (rs1_data),           
+        .rdata2 (rs2_data)
     );
 
     type_ctrl type_C(
@@ -103,10 +157,10 @@ module CHIP #(                                                                  
     );
 
     ALU alu(
-        .clk(clk),
-        .rst_n(rst_n),
-        .A_input(A_input),
-        .B_input(B_input),
+        .clk(i_clk),
+        .rst_n(i_rst_n),
+        .A_input(rs1_data),
+        .B_input(alu_B_input),
         .alu_ctrl(alu_ctrl),
         .result_out(result_out),
         .alu_ready(alu_ready)
@@ -124,7 +178,6 @@ module CHIP #(                                                                  
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
     
     // Todo: any combinational/sequential circuit
-
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
@@ -133,8 +186,32 @@ module CHIP #(                                                                  
             PC <= next_PC;
         end
     end
+    
+    // PC address
+    always @(*) begin
+        case(mem_to_reg)
+            `MEM2REG_PC_PLUS_4 : wdata = PC + 4;
+            `MEM2REG_ALU : wdata = result_out;
+            `MEM2REG_MEM : wdata = //還沒寫
+            `MEM2REG_PC_PLUS_IMM : wdata = ;
+            default : wdata = 0;
+        endcase
+    end
+
+    // Immediate
+
+    // ALU input
+    always @(*) begin
+        case(alu_src)
+            `FROM_RS2 : alu_B_input = {20'b0, I_type_imm};
+            `FROM_IMM : alu_B_input = rs2_data;
+            default :
+        endcase
+    end
+
 endmodule
 
+   
 
 module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
    
@@ -357,8 +434,6 @@ module ALUControl(
             default: alu_ctrl = `ADD;
         endcase
     end
-    
-
 endmodule
 
 module MULDIV_unit(

@@ -467,10 +467,10 @@ module B_type_jump(
 
     always @(*) begin
         case(funct3)
-            `BEQ : jump_or_not_reg = (A_input == B_input) ? 1 : 0;
-            `BNE : jump_or_not_reg = (A_input != B_input) ? 1 : 0;
-            `BLT : jump_or_not_reg = (A_input < B_input) ? 1 : 0;
-            `BGE : jump_or_not_reg = (A_input >= B_input) ? 1 : 0;
+            `BEQ : jump_or_not_reg = ($signed(A_input) == $signed(B_input)) ? 1 : 0;
+            `BNE : jump_or_not_reg = ($signed(A_input) != $signed(B_input)) ? 1 : 0;
+            `BLT : jump_or_not_reg = ($signed(A_input) < $signed(B_input)) ? 1 : 0;
+            `BGE : jump_or_not_reg = ($signed(A_input) >= $signed(B_input)) ? 1 : 0;
             default : jump_or_not_reg = 0;
         endcase
     end     
@@ -516,7 +516,7 @@ module ALU(
             `XOR : alu_result = A_input ^ B_input; 
             `AND : alu_result = A_input & B_input;
             `ADDI : alu_result = A_input + B_input;
-            `SLTI : alu_result = (A_input < B_input) ? 1 : 0;
+            `SLTI : alu_result = ($signed(A_input) < $signed(B_input)) ? 1 : 0;
             `SLLI : alu_result = A_input << B_input;
             `SRAI : alu_result = $signed(A_input) >>> $signed(B_input);
             `MUL : alu_result = muldiv_result[31:0];

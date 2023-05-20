@@ -85,8 +85,8 @@ module CHIP #(                                                                  
         wire mem_cen, mem_wen; // mem_cen先不管(cache)
         wire [BIT_W-1:0] mem_addr, mem_wdata, mem_rdata;
         wire mem_stall;
-        reg o_DMEM_addr_reg;
-        reg o_DMEM_wdata_reg;
+        reg [31:0] o_DMEM_addr_reg;
+        reg [31:0] o_DMEM_wdata_reg;
         reg o_IMEM_cen_reg;
         reg o_DMEM_cen_reg;
         //reg o_DMEM_wen_reg;
@@ -145,7 +145,7 @@ module CHIP #(                                                                  
         assign J_type_imm = {i_IMEM_data[31], i_IMEM_data[19:12], i_IMEM_data[20], i_IMEM_data[30:21], 1'b0};
 
     // Type Control associated
-        assign o_DMEM_wen = reg_write;
+        assign o_DMEM_wen = mem_write;
         
 
     // B-type Jump associated
@@ -167,7 +167,7 @@ module CHIP #(                                                                  
     Reg_file reg0(               
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
-        .wen    (o_DMEM_wen),          
+        .wen    (reg_write),          
         .rs1    (rs1),                
         .rs2    (rs2),                
         .rd     (rd),                 
@@ -218,20 +218,14 @@ module CHIP #(                                                                  
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
-        end
-        else begin
-            PC <= next_PC;
-        end
-    end
-
-    always @(posedge i_clk or negedge i_rst_n) begin
-        if (!i_rst_n) begin
             s <= `s_IDLE;
         end
         else begin
+            PC <= next_PC;
             s <= next_s;
         end
     end
+
     //FSM for the top level
     always @(*) begin
         case(s)
@@ -314,8 +308,8 @@ module CHIP #(                                                                  
     // ALU input
     always @(*) begin
         case(alu_src)
-            `FROM_RS2 : alu_B_input = {{20{I_type_imm[11]}}, I_type_imm};
-            `FROM_IMM : alu_B_input = rs2_data;
+            `FROM_RS2 : alu_B_input = rs2_data;
+            `FROM_IMM : alu_B_input = {{20{I_type_imm[11]}}, I_type_imm};
             default : alu_B_input = 0;
         endcase
     end

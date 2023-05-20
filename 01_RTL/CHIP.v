@@ -51,6 +51,7 @@ module CHIP #(                                                                  
 `define BLT 3'b100
 `define BGE 3'b101
 
+
 // MemtoReg
 `define MEM2REG_PC_PLUS_4 2'b00
 `define MEM2REG_ALU 2'b01
@@ -62,6 +63,10 @@ module CHIP #(                                                                  
 `define PCCTRL_RS1_PLUS_IMM 2'b01
 `define PCCTRL_PC_PLUS_4 2'b10
 
+`define FROM_RS2 0
+`define FROM_IMM 1
+
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Wires and Registers
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -71,6 +76,8 @@ module CHIP #(                                                                  
         wire mem_cen, mem_wen; // mem_cen先不管(cache)
         wire [BIT_W-1:0] mem_addr, mem_wdata, mem_rdata;
         wire mem_stall;
+        reg o_DMEM_addr_reg;
+        reg o_DMEM_wdata_reg;
 
     // Instruction associated
         wire [4:0] rs1;
@@ -96,14 +103,17 @@ module CHIP #(                                                                  
     // Memory associated
         wire [31:0] rs1_data;
         wire [31:0] rs2_data;
-        wire [31:0] rd_data;
+        reg [31:0] rd_data;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 
     // TODO: any wire assignment
-        assign PC = o_IMEM_addr;
+        assign o_IMEM_addr = PC;
+        assign o_DMEM_addr = o_DMEM_addr_reg;
+        assign o_DMEM_wdata = o_DMEM_wdata_reg;
+
 
     // Instruction associated
         assign rs1 = i_IMEM_data[19:15];
@@ -123,6 +133,8 @@ module CHIP #(                                                                  
 
     // B-type Jump associated
         wire jump_or_not;
+        reg jump_or_not_reg_1;
+        assign jump_or_not = jump_or_not_reg_1;
 
     // ALU Control & ALU associated
         wire [3:0] alu_ctrl;
@@ -176,7 +188,7 @@ module CHIP #(                                                                  
 
     ALUControl alu_C(
         .opcode(opcode),
-        .funct3(funct3),nch
+        .funct3(funct3),
         .funct7(funct7),
         .alu_ctrl(alu_ctrl)
     );
@@ -209,23 +221,23 @@ module CHIP #(                                                                  
     // Choosing data saving into reg
     always @(*) begin
         if(mem_write) begin
-            o_DMEM_addr = rs1_data + {20'b0, S_type_imm};
-            o_DMEM_wdata = rs2_data;
+            o_DMEM_addr_reg = rs1_data + {20'b0, S_type_imm};
+            o_DMEM_wdata_reg = rs2_data;
         end
         else begin
-            o_DMEM_addr = 0;
-            o_DMEM_wdata = 0; 
+            o_DMEM_addr_reg = 0;
+            o_DMEM_wdata_reg = 0; 
         end
     end
 
     // PC value 
     always @(*) begin
-        if(alu_ready)
+        if(alu_ready) begin
             case(pc_ctrl)
                 `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
 
                 `PCCTRL_PC_PLUS_IMM : begin
-                    if(opcode == `B_TYPE) next_PC = (jump_or_not) ? (PC + {19'b0, B_type_imm}) : (PC + 4);
+                    if(opcode == `B_TYPE) next_PC = (jump_or_not_reg_1) ? (PC + {19'b0, B_type_imm}) : (PC + 4);
                     else if(opcode == `UJ_JAL) next_PC = (PC + {11'b0, J_type_imm});
                 end
 
@@ -234,7 +246,9 @@ module CHIP #(                                                                  
                 default : next_PC = PC;
             endcase
         end
-        else next_PC = PC;
+        else begin
+            next_PC = PC;
+        end
     end
 
     // ALU input
@@ -242,7 +256,7 @@ module CHIP #(                                                                  
         case(alu_src)
             `FROM_RS2 : alu_B_input = {20'b0, I_type_imm};
             `FROM_IMM : alu_B_input = rs2_data;
-            default :
+            default : alu_B_input = 0;
         endcase
     end
 
@@ -383,18 +397,21 @@ module type_ctrl(
 endmodule
 
 module B_type_jump(
-    input [31:0] A_input;
-    input [31:0] B_input;
-    input [2:0] funct3;
+    input [31:0] A_input,
+    input [31:0] B_input,
+    input [2:0] funct3,
     output jump_or_not
 );
+    reg  jump_or_not_reg;
+    assign jump_or_not = jump_or_not_reg;
+
     always @(*) begin
         case(funct3)
-            `BEQ : jump_or_not = (A_input == B_input) ? 1 : 0;
-            `BNE : jump_or_not = (A_input != B_input) ? 1 : 0;
-            `BLT : jump_or_not = (A_input < B_input) ? 1 : 0;
-            `BGE : jump_or_not = (A_input >= B_input) ? 1 : 0;
-            default : jump_or_not = 0;
+            `BEQ : jump_or_not_reg = (A_input == B_input) ? 1 : 0;
+            `BNE : jump_or_not_reg = (A_input != B_input) ? 1 : 0;
+            `BLT : jump_or_not_reg = (A_input < B_input) ? 1 : 0;
+            `BGE : jump_or_not_reg = (A_input >= B_input) ? 1 : 0;
+            default : jump_or_not_reg = 0;
         endcase
     end     
 endmodule
@@ -510,10 +527,10 @@ module MULDIV_unit(
     always @(*) begin
         case(state)
             IDLE : begin
-                if(valid) next_state = MUL;
+                if(valid) next_state = MUL_state;
                 else next_state = IDLE;
             end
-            MUL : next_state = (counter==31) ? OUT : MUL; 
+            MUL_state : next_state = (counter==31) ? OUT : MUL_state; 
             OUT : next_state = IDLE;
             default : next_state = IDLE;
         endcase
@@ -521,7 +538,7 @@ module MULDIV_unit(
 
     // COUNTER
     always @(*) begin
-        if(state==MUL) next_counter = counter + 1;
+        if(state==MUL_state) next_counter = counter + 1;
         else next_counter = 0;
     end
 
@@ -537,7 +554,7 @@ module MULDIV_unit(
                 if(valid) next_shift_reg = {32'b0, A_input};
                 else next_shift_reg = 0;
             end
-            MUL : begin
+            MUL_state : begin
                 buffer = ({first, 32'b0} + shift_reg) >> 1;
                 next_shift_reg = buffer[63:0];
             end

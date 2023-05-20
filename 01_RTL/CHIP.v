@@ -82,7 +82,6 @@ module CHIP #(                                                                  
         wire [20:0] J_type_imm; 
 
     // Type Control associated
-        wire is_branch;
         wire [1:0] mem_to_reg;
         wire [1:0] pc_ctrl;
         wire mem_read;
@@ -147,7 +146,6 @@ module CHIP #(                                                                  
 
     type_ctrl type_C(
         .opcode(opcode),
-        .is_branch(is_branch),
         .mem_to_reg(mem_to_reg),
         .pc_ctrl(pc_ctrl),
         .mem_read(mem_read),
@@ -187,18 +185,29 @@ module CHIP #(                                                                  
         end
     end
     
-    // PC address
+    // Choosing data written into reg
     always @(*) begin
         case(mem_to_reg)
-            `MEM2REG_PC_PLUS_4 : wdata = PC + 4;
-            `MEM2REG_ALU : wdata = result_out;
-            `MEM2REG_MEM : wdata = //還沒寫
-            `MEM2REG_PC_PLUS_IMM : wdata = ;
-            default : wdata = 0;
+            `MEM2REG_PC_PLUS_4 : rd_data = PC + 4;
+            `MEM2REG_ALU : rd_data = result_out;
+            `MEM2REG_MEM : rd_data = i_DMEM_rdata;
+            `MEM2REG_PC_PLUS_IMM : rd_data = PC + {U_type_imm, 12'b0};
+            default : rd_data = 0;
         endcase
     end
 
-    // Immediate
+    // PC value 
+    always @(*) begin
+        if(alu_ready)
+            case(pc_ctrl)
+                `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
+                `PCCTRL_PC_PLUS_IMM : next_PC = (opcode == `B_TYPE) ? (PC + {19'b0, B_type_imm}) : (C + {11'b0, J_type_imm});
+                `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {20'b0, I_type_imm};
+                default : next_PC = PC;
+            endcase
+        end
+        else next_PC = PC;
+    end
 
     // ALU input
     always @(*) begin
@@ -259,7 +268,6 @@ endmodule
 
 module type_ctrl(
     input   [6:0]   opcode,
-    output  reg   is_branch,
     output  reg   [1:0] mem_to_reg,
     output  reg   [1:0] pc_ctrl,
     output  reg   mem_read,
@@ -270,7 +278,6 @@ module type_ctrl(
     always @(*) begin
         case(opcode)
             `R_TYPE : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_ALU;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -279,7 +286,6 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `I_TYPE : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_ALU;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -288,7 +294,6 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `I_JALR : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_PC_PLUS_4;
                 pc_ctrl     = `PCCTRL_RS1_PLUS_IMM;
                 mem_read    = 0;
@@ -297,7 +302,6 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `I_LOAD : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_MEM;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 1;
@@ -306,7 +310,6 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `S_TYPE : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_MEM;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -315,7 +318,6 @@ module type_ctrl(
                 reg_write   = 0;
             end
             `B_TYPE : begin
-                is_branch   = 1;
                 mem_to_reg  = `MEM2REG_ALU;
                 pc_ctrl     = `PCCTRL_PC_PLUS_IMM;
                 mem_read    = 0;
@@ -324,7 +326,6 @@ module type_ctrl(
                 reg_write   = 0;
             end
             `U_TYPE : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_PC_PLUS_IMM;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -333,7 +334,6 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `UJ_JAL : begin
-                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_PC_PLUS_4;
                 pc_ctrl     = `PCCTRL_PC_PLUS_IMM;
                 mem_read    = 0;
@@ -342,7 +342,6 @@ module type_ctrl(
                 reg_write   = 1;
             end
             default : begin
-                is_branch   = 0;
                 mem_to_reg  = 0;
                 pc_ctrl     = 0;
                 mem_read    = 0;

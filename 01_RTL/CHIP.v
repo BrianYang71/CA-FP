@@ -46,10 +46,10 @@ module CHIP #(                                                                  
 `define XOR  4'b0110
 `define AND  4'b0111
 `define MUL  4'b1000
-`define BEQ 3'b000
-`define BNE 3'b001
-`define BLT 3'b100
-`define BGE 3'b101
+`define BEQ  3'b000
+`define BNE  3'b001
+`define BLT  3'b100
+`define BGE  3'b101
 
 
 // MemtoReg
@@ -63,8 +63,8 @@ module CHIP #(                                                                  
 `define PCCTRL_RS1_PLUS_IMM 2'b01
 `define PCCTRL_PC_PLUS_4 2'b10
 
-`define FROM_RS2 0
-`define FROM_IMM 1
+`define FROM_RS2 1'b0
+`define FROM_IMM 1'b1
 
 //Top FSM
 `define s_IDLE 3'd0
@@ -72,7 +72,8 @@ module CHIP #(                                                                  
 `define s_MEMORY 3'd2
 `define s_WRITE 3'd3
 `define s_READ 3'd4
-`define s_OUT 3'd5
+`define s_ALU 3'd5
+`define s_OUT 3'd6
 
 
 
@@ -84,7 +85,6 @@ module CHIP #(                                                                  
         reg [BIT_W-1:0] PC, next_PC;
         wire mem_cen, mem_wen; // mem_cen先不管(cache)
         wire [BIT_W-1:0] mem_addr, mem_wdata, mem_rdata;
-        wire mem_stall;
         reg [31:0] o_DMEM_addr_reg;
         reg [31:0] o_DMEM_wdata_reg;
         reg o_IMEM_cen_reg;
@@ -178,6 +178,7 @@ module CHIP #(                                                                  
 
     type_ctrl type_C(
         .opcode(opcode),
+        .jump(jump),
         .mem_to_reg(mem_to_reg),
         .pc_ctrl(pc_ctrl),
         .mem_read(mem_read),
@@ -221,7 +222,11 @@ module CHIP #(                                                                  
             s <= `s_IDLE;
         end
         else begin
+        if (alu_ready) begin
             PC <= next_PC;
+        end
+        else begin
+        end
             s <= next_s;
         end
     end
@@ -233,9 +238,12 @@ module CHIP #(                                                                  
                 o_IMEM_cen_reg = 1;
                 next_s = `s_INSTRU;
             end
-            `s_INSTRU : begin
-                next_s = (mem_to_reg  == `MEM2REG_MEM) ? `s_MEMORY : `s_OUT;
-                o_DMEM_cen_reg = 1;
+            `s_INSTRU : begin                
+                if (mem_to_reg  == `MEM2REG_MEM) begin
+                    next_s = `s_MEMORY;
+                    o_DMEM_cen_reg = 1;
+                end
+                else next_s = `s_ALU;
             end
             `s_MEMORY : begin
                 next_s = (mem_read) ? `s_READ : `s_WRITE;
@@ -256,23 +264,26 @@ module CHIP #(                                                                  
                     next_s = `s_READ;
                 end
             end
+            `s_ALU : begin
+                next_s = `s_OUT;
+            end
             `s_OUT : next_s = `s_IDLE;
             default : next_s = `s_IDLE;
         endcase
     end
     
-    // Choosing data written into reg
+    // Choose data to write into reg
     always @(*) begin
         case(mem_to_reg)
             `MEM2REG_PC_PLUS_4 : rd_data = PC + 4;
             `MEM2REG_ALU : rd_data = result_out;
-            `MEM2REG_MEM : rd_data = (mem_write) ? i_DMEM_rdata : 0 ; // lw
+            `MEM2REG_MEM : rd_data = i_DMEM_rdata; // lw
             `MEM2REG_PC_PLUS_IMM : rd_data = PC + {U_type_imm, 12'b0};
             default : rd_data = 0;
         endcase
     end
 
-    // Choosing data saving into reg
+    // Choose data to save into memory
     always @(*) begin
         if(mem_write) begin
             o_DMEM_addr_reg = rs1_data + {{20{S_type_imm[11]}}, S_type_imm};
@@ -285,24 +296,16 @@ module CHIP #(                                                                  
     end
 
     // PC value 
-    always @(*) begin
-        if(alu_ready) begin
-            case(pc_ctrl)
-                `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
-
-                `PCCTRL_PC_PLUS_IMM : begin
-                    if(opcode == `B_TYPE) next_PC = (jump_or_not_reg_1) ? (PC + {{19{B_type_imm[12]}}, B_type_imm}) : (PC + 4);
-                    else if(opcode == `UJ_JAL) next_PC = (PC + {{11{J_type_imm[20]}}, J_type_imm});
-                end
-
-                `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {{20{I_type_imm[11]}}, I_type_imm};
-
-                default : next_PC = PC;
-            endcase
-        end
-        else begin
-            next_PC = PC;
-        end
+    always @(*) begin        
+        case(pc_ctrl)
+            `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
+            `PCCTRL_PC_PLUS_IMM : begin
+                if(opcode == `B_TYPE) next_PC = (jump_or_not_reg_1) ? (PC + {{19{B_type_imm[12]}}, B_type_imm}) : (PC + 4);
+                else if(opcode == `UJ_JAL) next_PC = (PC + {{11{J_type_imm[20]}}, J_type_imm});
+            end
+            `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {{20{I_type_imm[11]}}, I_type_imm};
+            default : next_PC = PC;
+        endcase
     end
 
     // ALU input
@@ -310,7 +313,7 @@ module CHIP #(                                                                  
         case(alu_src)
             `FROM_RS2 : alu_B_input = rs2_data;
             `FROM_IMM : alu_B_input = {{20{I_type_imm[11]}}, I_type_imm};
-            default : alu_B_input = 0;
+            default : alu_B_input = rs2_data;
         endcase
     end
 
@@ -535,6 +538,7 @@ module ALUControl(
                         3'b000: alu_ctrl = (funct7 == 0 ? `ADD : `SUB);
                         3'b100: alu_ctrl = `XOR;
                         3'b111: alu_ctrl = `AND;
+                        default: alu_ctrl = `ADD;
                     endcase
                 end
             end
@@ -544,6 +548,7 @@ module ALUControl(
                     3'b010: alu_ctrl = `SLTI;    
                     3'b001: alu_ctrl = `SLLI;    
                     3'b101: alu_ctrl = `SRAI;
+                    default: alu_ctrl = `ADDI;
                 endcase
             end
             default: alu_ctrl = `ADD;
@@ -575,7 +580,7 @@ module MULDIV_unit(
 
 
     assign mul_output = shift_reg;
-    assign ready = (state==OUT) ? 1 : 0;
+    assign ready = (state == OUT) ? 1 : 0;
 
     // STATE
     always @(*) begin
@@ -584,7 +589,7 @@ module MULDIV_unit(
                 if(valid) next_state = MUL_state;
                 else next_state = IDLE;
             end
-            MUL_state : next_state = (counter==31) ? OUT : MUL_state; 
+            MUL_state : next_state = (counter == 31) ? OUT : MUL_state; 
             OUT : next_state = IDLE;
             default : next_state = IDLE;
         endcase
@@ -592,7 +597,7 @@ module MULDIV_unit(
 
     // COUNTER
     always @(*) begin
-        if(state==MUL_state) next_counter = counter + 1;
+        if(state == MUL_state) next_counter = counter + 1;
         else next_counter = 0;
     end
 

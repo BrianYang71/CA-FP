@@ -1,3 +1,51 @@
+// RISC-V format
+`define R_TYPE 7'b0110011 // arithmatic/logical ops
+`define I_TYPE 7'b0010011 // immediates
+`define I_JALR 7'b1100111
+`define I_LOAD 7'b0000011
+`define S_TYPE 7'b0100011 // store
+`define B_TYPE 7'b1100011 // branch
+`define U_TYPE 7'b0010111 // upper immediates
+`define UJ_JAL 7'b1101111
+
+// ALUCtrl signal
+`define ADD  4'b0000
+`define ADDI  4'b0001
+`define SUB  4'b0010
+`define SLTI  4'b0011
+`define SLLI  4'b0100
+`define SRAI  4'b0101
+`define XOR  4'b0110
+`define AND  4'b0111
+`define MUL  4'b1000
+`define BEQ  3'b000
+`define BNE  3'b001
+`define BLT  3'b100
+`define BGE  3'b101
+
+// MemtoReg
+`define MEM2REG_PC_PLUS_4 2'b00
+`define MEM2REG_ALU 2'b01
+`define MEM2REG_MEM 2'b10
+`define MEM2REG_PC_PLUS_IMM 2'b11
+
+// PCCtrl
+`define PCCTRL_PC_PLUS_IMM 2'b00
+`define PCCTRL_RS1_PLUS_IMM 2'b01
+`define PCCTRL_PC_PLUS_4 2'b10
+
+`define FROM_RS2 1'b0
+`define FROM_IMM 1'b1
+
+//Top FSM
+`define s_IDLE 3'd0
+`define s_INSTRU 3'd1
+`define s_MEMORY 3'd2
+`define s_WRITE 3'd3
+`define s_READ 3'd4
+`define s_ALU 3'd5
+`define s_OUT 3'd6
+
 //----------------------------- DO NOT MODIFY THE I/O INTERFACE!! ------------------------------//
 module CHIP #(                                                                                  //
     parameter BIT_W = 32                                                                        //
@@ -26,56 +74,6 @@ module CHIP #(                                                                  
     // TODO: any declaration
     // Constants
 
-// RISC-V format
-`define R_TYPE 7'b0110011 // arithmatic/logical ops
-`define I_TYPE 7'b0010011 // immediates
-`define I_JALR 7'b1100111
-`define I_LOAD 7'b0000011
-`define S_TYPE 7'b0100011 // store
-`define B_TYPE 7'b1100011 // branch
-`define U_TYPE 7'b0010111 // upper immediates
-`define UJ_JAL 7'b1101111
-
-// ALUCtrl signal
-`define ADD  4'b0000
-`define ADDI  4'b0001
-`define SUB  4'b0010
-`define SLTI  4'b0011
-`define SLLI  4'b0100
-`define SRAI  4'b0101
-`define XOR  4'b0110
-`define AND  4'b0111
-`define MUL  4'b1000
-`define BEQ  3'b000
-`define BNE  3'b001
-`define BLT  3'b100
-`define BGE  3'b101
-
-
-// MemtoReg
-`define MEM2REG_PC_PLUS_4 2'b00
-`define MEM2REG_ALU 2'b01
-`define MEM2REG_MEM 2'b10
-`define MEM2REG_PC_PLUS_IMM 2'b11
-
-// PCCtrl
-`define PCCTRL_PC_PLUS_IMM 2'b00
-`define PCCTRL_RS1_PLUS_IMM 2'b01
-`define PCCTRL_PC_PLUS_4 2'b10
-
-`define FROM_RS2 1'b0
-`define FROM_IMM 1'b1
-
-//Top FSM
-`define s_IDLE 3'd0
-`define s_INSTRU 3'd1
-`define s_MEMORY 3'd2
-`define s_WRITE 3'd3
-`define s_READ 3'd4
-`define s_ALU 3'd5
-`define s_OUT 3'd6
-
-
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Wires and Registers
@@ -88,7 +86,7 @@ module CHIP #(                                                                  
         reg [31:0] o_DMEM_addr_reg;
         reg [31:0] o_DMEM_wdata_reg;
         reg o_IMEM_cen_reg;
-        reg o_DMEM_cen_reg;
+        //reg o_DMEM_cen_reg;
         //reg o_DMEM_wen_reg;
         reg [2:0] s, next_s;
 
@@ -99,11 +97,9 @@ module CHIP #(                                                                  
         wire [6:0] opcode;
         wire [2:0] funct3;
         wire [6:0] funct7;
-        wire [11:0] I_type_imm;
-        wire [11:0] S_type_imm;
-        wire [12:0] B_type_imm; 
-        wire [19:0] U_type_imm;
-        wire [20:0] J_type_imm; 
+
+    // IMMGen output
+        wire [31:0] IMMGen_out;
 
     // Type Control associated
         wire [1:0] mem_to_reg;
@@ -111,7 +107,7 @@ module CHIP #(                                                                  
         wire mem_read;
         wire mem_write;
         wire alu_src;
-        wire reg_write;
+        wire reg_write_or_not;
 
     // Memory associated
         wire [31:0] rs1_data;
@@ -124,10 +120,12 @@ module CHIP #(                                                                  
 
     // TODO: any wire assignment
         assign o_IMEM_addr = PC;
-        assign o_DMEM_addr = o_DMEM_addr_reg;
-        assign o_DMEM_wdata = o_DMEM_wdata_reg;
+        assign o_DMEM_addr = (mem_to_reg  == `MEM2REG_MEM) ? (rs1_data + IMMGen_out) : 0;
+        assign o_DMEM_wdata = rs2_data;
         assign o_IMEM_cen = o_IMEM_cen_reg;
-        assign o_DMEM_cen = o_DMEM_cen_reg;
+        assign o_DMEM_wen = mem_write;
+        assign o_DMEM_cen = mem_write | mem_read;
+        //assign o_DMEM_cen = o_DMEM_cen_reg;
         //assign o_DMEM_wen = o_DMEM_wen_reg;
 
 
@@ -138,20 +136,11 @@ module CHIP #(                                                                  
         assign opcode = i_IMEM_data[6:0];
         assign funct3 = i_IMEM_data[14:12];
         assign funct7 = i_IMEM_data[31:25];
-        assign I_type_imm = i_IMEM_data[31:20];
-        assign S_type_imm = {i_IMEM_data[31:25], i_IMEM_data[11:7]};
-        assign B_type_imm = {i_IMEM_data[31], i_IMEM_data[7], i_IMEM_data[30:25], i_IMEM_data[11:8], 1'b0};
-        assign U_type_imm = i_IMEM_data[31:12];
-        assign J_type_imm = {i_IMEM_data[31], i_IMEM_data[19:12], i_IMEM_data[20], i_IMEM_data[30:21], 1'b0};
 
-    // Type Control associated
-        assign o_DMEM_wen = mem_write;
-        
+    // Type Control associated        
 
     // B-type Jump associated
-        wire jump_or_not;
-        reg jump_or_not_reg_1;
-        assign jump_or_not = jump_or_not_reg_1;
+        wire if_jump;
 
     // ALU Control & ALU associated
         wire [3:0] alu_ctrl;
@@ -167,13 +156,18 @@ module CHIP #(                                                                  
     Reg_file reg0(               
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
-        .wen    (reg_write),          
+        .wen    (reg_write_or_not),          
         .rs1    (rs1),                
         .rs2    (rs2),                
         .rd     (rd),                 
         .wdata  (rd_data),             
         .rdata1 (rs1_data),           
         .rdata2 (rs2_data)
+    );
+
+    IMMGen immgen(
+        .instruction(i_IMEM_data),
+        .immediate(IMMGen_out)
     );
 
     type_ctrl type_C(
@@ -184,14 +178,14 @@ module CHIP #(                                                                  
         .mem_read(mem_read),
         .mem_write(mem_write),
         .alu_src(alu_src),
-        .reg_write(reg_write)
+        .reg_write(reg_write_or_not)
     );
 
     B_type_jump b_type_jump(
         .A_input(rs1_data),
         .B_input(rs2_data),
         .funct3(funct3),
-        .jump_or_not(jump_or_not)
+        .jump_or_not(if_jump)
     );
 
     ALU alu(
@@ -241,7 +235,6 @@ module CHIP #(                                                                  
             `s_INSTRU : begin                
                 if (mem_to_reg  == `MEM2REG_MEM) begin
                     next_s = `s_MEMORY;
-                    o_DMEM_cen_reg = 1;
                 end
                 else next_s = `s_ALU;
             end
@@ -278,41 +271,30 @@ module CHIP #(                                                                  
             `MEM2REG_PC_PLUS_4 : rd_data = PC + 4;
             `MEM2REG_ALU : rd_data = result_out;
             `MEM2REG_MEM : rd_data = i_DMEM_rdata; // lw
-            `MEM2REG_PC_PLUS_IMM : rd_data = PC + {U_type_imm, 12'b0};
+            `MEM2REG_PC_PLUS_IMM : rd_data = PC + IMMGen_out;
             default : rd_data = 0;
         endcase
     end
 
     // Choose data to save into memory
-    always @(*) begin
-        if(mem_write) begin
-            o_DMEM_addr_reg = rs1_data + {{20{S_type_imm[11]}}, S_type_imm};
-            o_DMEM_wdata_reg = rs2_data;
-        end
-        else begin
-            o_DMEM_addr_reg = 0;
-            o_DMEM_wdata_reg = 0; 
-        end
-    end
+   
+    
 
-    // PC value 
+    // Setting PC value 
     always @(*) begin        
         case(pc_ctrl)
             `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
-            `PCCTRL_PC_PLUS_IMM : begin
-                if(opcode == `B_TYPE) next_PC = (jump_or_not_reg_1) ? (PC + {{19{B_type_imm[12]}}, B_type_imm}) : (PC + 4);
-                else if(opcode == `UJ_JAL) next_PC = (PC + {{11{J_type_imm[20]}}, J_type_imm});
-            end
-            `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + {{20{I_type_imm[11]}}, I_type_imm};
+            `PCCTRL_PC_PLUS_IMM : next_PC = (if_jump) ? (PC + IMMGen_out) : (PC + 4);
+            `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + IMMGen_out;
             default : next_PC = PC;
         endcase
     end
 
-    // ALU input
+    // Choose ALU input
     always @(*) begin
         case(alu_src)
             `FROM_RS2 : alu_B_input = rs2_data;
-            `FROM_IMM : alu_B_input = {{20{I_type_imm[11]}}, I_type_imm};
+            `FROM_IMM : alu_B_input = IMMGen_out;
             default : alu_B_input = rs2_data;
         endcase
     end
@@ -363,6 +345,29 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
                 mem[i] <= mem_nxt[i];
         end       
     end
+endmodule
+
+module IMMGen(
+    input [31:0] instruction,
+    output [31:0] immediate
+);
+    reg [31:0] extent_imm;
+    assign immediate = extent_imm;
+
+    always @(*) begin
+        case(instruction[6:0]) 
+            `R_TYPE : extent_imm = 32'b0;
+            `I_TYPE : extent_imm = {{20{instruction[31]}}, instruction[31:20]};
+            `I_JALR : extent_imm = {{20{instruction[31]}}, instruction[31:20]};
+            `I_LOAD : extent_imm = {{20{instruction[31]}}, instruction[31:20]};
+            `S_TYPE : extent_imm = {{20{instruction[31]}}, instruction[31:25], instruction[11:7]};
+            `B_TYPE : extent_imm = {{20{instruction[31]}}, instruction[7], instruction[30:25], instruction[11:8], 1'b0};
+            `U_TYPE : extent_imm = {instruction[31:12], 12'b0};
+            `UJ_JAL : extent_imm = {{12{instruction[31]}}, instruction[19:12], instruction[20], instruction[30:21], 1'b0};
+            default : extent_imm = 32'b0;
+        endcase
+    end
+
 endmodule
 
 module type_ctrl(

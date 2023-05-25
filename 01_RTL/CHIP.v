@@ -86,8 +86,6 @@ module CHIP #(                                                                  
         reg [31:0] o_DMEM_addr_reg;
         reg [31:0] o_DMEM_wdata_reg;
         reg o_IMEM_cen_reg;
-        //reg o_DMEM_cen_reg;
-        //reg o_DMEM_wen_reg;
         reg [2:0] s, next_s;
 
     // Instruction associated
@@ -120,13 +118,11 @@ module CHIP #(                                                                  
 
     // TODO: any wire assignment
         assign o_IMEM_addr = PC;
+        assign o_IMEM_cen = o_IMEM_cen_reg;
+        assign o_DMEM_cen = mem_write | mem_read;
+        assign o_DMEM_wen = mem_write;
         assign o_DMEM_addr = (mem_to_reg  == `MEM2REG_MEM) ? (rs1_data + IMMGen_out) : 0;
         assign o_DMEM_wdata = rs2_data;
-        assign o_IMEM_cen = o_IMEM_cen_reg;
-        assign o_DMEM_wen = mem_write;
-        assign o_DMEM_cen = mem_write | mem_read;
-        //assign o_DMEM_cen = o_DMEM_cen_reg;
-        //assign o_DMEM_wen = o_DMEM_wen_reg;
 
 
     // Instruction associated
@@ -215,12 +211,11 @@ module CHIP #(                                                                  
             PC <= 32'h00010000; // Do not modify this value!!!
             s <= `s_IDLE;
         end
+        
         else begin
-        if (alu_ready) begin
-            PC <= next_PC;
-        end
-        else begin
-        end
+            if (s == `s_OUT) begin
+                PC <= next_PC;
+            end
             s <= next_s;
         end
     end
@@ -229,17 +224,32 @@ module CHIP #(                                                                  
     always @(*) begin
         case(s)
             `s_IDLE : begin
-                o_IMEM_cen_reg = 1;
-                next_s = `s_INSTRU;
+                //if(i_DMEM_stall == 0) begin
+                    o_IMEM_cen_reg = 1;
+                    next_s = `s_INSTRU;
+                //end
+                /*else begin
+                    next_s = `s_IDLE;
+                end*/
             end
-            `s_INSTRU : begin                
-                if (mem_to_reg  == `MEM2REG_MEM) begin
+            `s_INSTRU : begin
+                if(i_DMEM_stall == 0) begin
+                    if (mem_to_reg  == `MEM2REG_MEM) begin
                     next_s = `s_MEMORY;
+                    end
+                    else next_s = `s_ALU;
                 end
-                else next_s = `s_ALU;
+                else begin
+                    next_s = `s_INSTRU;
+                end                
             end
             `s_MEMORY : begin
-                next_s = (mem_read) ? `s_READ : `s_WRITE;
+                if(i_DMEM_stall == 0) begin
+                    next_s = (mem_read) ? `s_READ : `s_WRITE;
+                end
+                else begin
+                    next_s = `s_MEMORY;
+                end
             end
             `s_WRITE : begin
                 if(i_DMEM_stall == 0) begin
@@ -258,7 +268,13 @@ module CHIP #(                                                                  
                 end
             end
             `s_ALU : begin
-                next_s = `s_OUT;
+                if(i_DMEM_stall == 0 && alu_ready == 1) begin
+                    next_s = `s_OUT;
+                end
+                else begin
+                    next_s = `s_ALU;
+                end
+                 
             end
             `s_OUT : next_s = `s_IDLE;
             default : next_s = `s_IDLE;

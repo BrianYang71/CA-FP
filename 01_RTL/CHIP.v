@@ -33,6 +33,7 @@
 `define PCCTRL_PC_PLUS_IMM 2'b00
 `define PCCTRL_RS1_PLUS_IMM 2'b01
 `define PCCTRL_PC_PLUS_4 2'b10
+`define PCCTRL_AUIPC 2'b11
 
 `define FROM_RS2 1'b0
 `define FROM_IMM 1'b1
@@ -122,7 +123,7 @@ module CHIP #(                                                                  
         assign o_DMEM_cen = mem_write | mem_read;
         assign o_DMEM_wen = mem_write;
         assign o_DMEM_addr = (mem_to_reg  == `MEM2REG_MEM) ? (rs1_data + IMMGen_out) : 0;
-        assign o_DMEM_wdata = rs2_data;
+        assign o_DMEM_wdata = (o_DMEM_wen) ? rs2_data : 0;
 
 
     // Instruction associated
@@ -233,24 +234,14 @@ module CHIP #(                                                                  
                 end*/
             end
             `s_INSTRU : begin
-                if(i_DMEM_stall == 0) begin
-                    o_IMEM_cen_reg = 1;
-                    if (mem_to_reg  == `MEM2REG_MEM) begin
+                o_IMEM_cen_reg = 1;
+                if (mem_to_reg  == `MEM2REG_MEM) begin
                     next_s = `s_MEMORY;
-                    end
-                    else next_s = `s_ALU;
                 end
-                else begin
-                    next_s = `s_INSTRU;
-                end                
+                else next_s = `s_ALU;              
             end
             `s_MEMORY : begin
-                if(i_DMEM_stall == 0) begin
-                    next_s = (mem_read) ? `s_READ : `s_WRITE;
-                end
-                else begin
-                    next_s = `s_MEMORY;
-                end
+                next_s = (mem_read) ? `s_READ : `s_WRITE;
             end
             `s_WRITE : begin
                 if(i_DMEM_stall == 0) begin
@@ -301,8 +292,9 @@ module CHIP #(                                                                  
     always @(*) begin        
         case(pc_ctrl)
             `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
-            `PCCTRL_PC_PLUS_IMM : next_PC = (if_jump) ? (PC + IMMGen_out) : (PC + 4);
+            `PCCTRL_PC_PLUS_IMM : next_PC = (if_jump || opcode==`UJ_JAL) ? (PC + IMMGen_out) : (PC + 4);
             `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + IMMGen_out;
+            `PCCTRL_AUIPC : next_PC = PC + 4;
             default : next_PC = PC;
         endcase
     end
@@ -449,7 +441,7 @@ module type_ctrl(
             end
             `U_TYPE : begin
                 mem_to_reg  = `MEM2REG_PC_PLUS_IMM;
-                pc_ctrl     = `PCCTRL_PC_PLUS_4;
+                pc_ctrl     = `PCCTRL_AUIPC;
                 mem_read    = 0;
                 mem_write   = 0;
                 alu_src     = `FROM_RS2;

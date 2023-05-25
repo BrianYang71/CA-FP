@@ -215,6 +215,7 @@ module CHIP #(                                                                  
         else begin
             if (s == `s_OUT) begin
                 PC <= next_PC;
+                o_IMEM_cen_reg <= 0;
             end
             s <= next_s;
         end
@@ -225,7 +226,6 @@ module CHIP #(                                                                  
         case(s)
             `s_IDLE : begin
                 //if(i_DMEM_stall == 0) begin
-                    o_IMEM_cen_reg = 1;
                     next_s = `s_INSTRU;
                 //end
                 /*else begin
@@ -234,6 +234,7 @@ module CHIP #(                                                                  
             end
             `s_INSTRU : begin
                 if(i_DMEM_stall == 0) begin
+                    o_IMEM_cen_reg = 1;
                     if (mem_to_reg  == `MEM2REG_MEM) begin
                     next_s = `s_MEMORY;
                     end

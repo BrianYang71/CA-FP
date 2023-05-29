@@ -112,6 +112,8 @@ module CHIP #(                                                                  
         wire [31:0] rs1_data;
         wire [31:0] rs2_data;
         reg [31:0] rd_data;
+        reg o_done, od_next;
+        reg flag = 0;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
@@ -211,21 +213,26 @@ module CHIP #(                                                                  
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
             s <= `s_IDLE;
+            o_done <= 0;
         end
         
         else begin
-            if (s == `s_OUT) begin
-                PC <= next_PC;
+            o_done <= od_next;
+
+            if (o_done) begin    
+                PC <= next_PC;            
                 o_IMEM_cen_reg <= 0;
+                od_next = 0;                
             end
             s <= next_s;
         end
     end
 
-    //FSM for the top level
+    // FSM for the top module
     always @(*) begin
         case(s)
             `s_IDLE : begin
+                //od_next = 0;
                 //if(i_DMEM_stall == 0) begin
                     next_s = `s_INSTRU;
                 //end
@@ -234,11 +241,12 @@ module CHIP #(                                                                  
                 end*/
             end
             `s_INSTRU : begin
+                
                 o_IMEM_cen_reg = 1;
                 if (mem_to_reg  == `MEM2REG_MEM) begin
                     next_s = `s_MEMORY;
                 end
-                else next_s = `s_ALU;              
+                else next_s = `s_ALU;
             end
             `s_MEMORY : begin
                 next_s = (mem_read) ? `s_READ : `s_WRITE;
@@ -250,6 +258,14 @@ module CHIP #(                                                                  
                 else begin
                     next_s = `s_WRITE;
                 end
+
+                if(flag == 1) begin
+                    od_next = 1;
+                end
+                else begin
+                    od_next = 0;
+                end
+                flag = 1;
             end
             `s_READ :  begin
                 if(i_DMEM_stall == 0) begin
@@ -258,6 +274,14 @@ module CHIP #(                                                                  
                 else begin
                     next_s = `s_READ;
                 end
+
+                if(flag == 1) begin
+                    od_next = 1;
+                end
+                else begin
+                    od_next = 0;
+                end
+                flag = 1;
             end
             `s_ALU : begin
                 if(i_DMEM_stall == 0 && alu_ready == 1) begin
@@ -266,15 +290,34 @@ module CHIP #(                                                                  
                 else begin
                     next_s = `s_ALU;
                 end
+
+                if(flag == 1) begin
+                    od_next = 1;
+                end
+                else begin
+                    od_next = 0;
+                end
+                flag = 1;
                  
             end
-            `s_OUT : next_s = `s_IDLE;
+            `s_OUT : begin
+                next_s = `s_IDLE;
+                od_next = 0;
+                /*if(flag == 1) begin
+                    od_next = 1;
+                end
+                else begin
+                    od_next = 0;
+                end
+                flag = 1;*/
+            end
             default : next_s = `s_IDLE;
         endcase
     end
     
     // Choose data to write into reg
     always @(*) begin
+        
         case(mem_to_reg)
             `MEM2REG_PC_PLUS_4 : rd_data = PC + 4;
             `MEM2REG_ALU : rd_data = result_out;

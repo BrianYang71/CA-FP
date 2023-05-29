@@ -232,7 +232,7 @@ module CHIP #(                                                                  
     always @(*) begin
         case(s)
             `s_IDLE : begin
-                //od_next = 0;
+                od_next = 0;
                 //if(i_DMEM_stall == 0) begin
                     next_s = `s_INSTRU;
                 //end
@@ -259,13 +259,13 @@ module CHIP #(                                                                  
                     next_s = `s_WRITE;
                 end
 
-                if(flag == 1) begin
+                /*if(flag == 1) begin
                     od_next = 1;
                 end
                 else begin
                     od_next = 0;
                 end
-                flag = 1;
+                flag = 1;*/
             end
             `s_READ :  begin
                 if(i_DMEM_stall == 0) begin
@@ -275,13 +275,13 @@ module CHIP #(                                                                  
                     next_s = `s_READ;
                 end
 
-                if(flag == 1) begin
+                /*if(flag == 1) begin
                     od_next = 1;
                 end
                 else begin
                     od_next = 0;
                 end
-                flag = 1;
+                flag = 1;*/
             end
             `s_ALU : begin
                 if(i_DMEM_stall == 0 && alu_ready == 1) begin
@@ -291,18 +291,6 @@ module CHIP #(                                                                  
                     next_s = `s_ALU;
                 end
 
-                if(flag == 1) begin
-                    od_next = 1;
-                end
-                else begin
-                    od_next = 0;
-                end
-                flag = 1;
-                 
-            end
-            `s_OUT : begin
-                next_s = `s_IDLE;
-                od_next = 0;
                 /*if(flag == 1) begin
                     od_next = 1;
                 end
@@ -310,6 +298,18 @@ module CHIP #(                                                                  
                     od_next = 0;
                 end
                 flag = 1;*/
+                 
+            end
+            `s_OUT : begin
+                next_s = `s_IDLE;
+                //od_next = 0;
+                if(flag == 1) begin
+                    od_next = 1;
+                end
+                else begin
+                    od_next = 0;
+                end
+                flag = 1;
             end
             default : next_s = `s_IDLE;
         endcase

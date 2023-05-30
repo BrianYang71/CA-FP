@@ -114,8 +114,6 @@ module CHIP #(                                                                  
         wire [31:0] rs1_data;
         wire [31:0] rs2_data;
         reg [31:0] rd_data;
-        reg o_done, od_next;
-        reg flag = 0;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
@@ -148,7 +146,7 @@ module CHIP #(                                                                  
         wire alu_ready; 
         reg [31:0] alu_B_input;
 
-        reg [3:0] stalldelay, next_stalldelay;
+        //reg [3:0] stalldelay, next_stalldelay;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -216,58 +214,35 @@ module CHIP #(                                                                  
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
             s <= `s_IDLE;
-            o_done <= 0;
         end
         
         else begin
-<<<<<<< HEAD
             PC <= next_PC;
-=======
-            o_done <= od_next;
-
-            if (o_done) begin    
-                PC <= next_PC;            
-                o_IMEM_cen_reg <= 0;
-                od_next = 0;                
-            end
->>>>>>> 450f3068a4b9aab97bce2b331dd92c6474b15f96
             s <= next_s;
         end
     end
 
-<<<<<<< HEAD
     // always @()
 
     //FSM for the top level
     always @(*) begin
         case(s)
             `s_IDLE : begin
+                Reg_write = 0;
                 next_s = `s_INSTRU;
             end
             `s_INSTRU : begin
-=======
-    // FSM for the top module
-    always @(*) begin
-        case(s)
-            `s_IDLE : begin
-                od_next = 0;
-                //if(i_DMEM_stall == 0) begin
-                    next_s = `s_INSTRU;
-                //end
-                /*else begin
-                    next_s = `s_IDLE;
-                end*/
-            end
-            `s_INSTRU : begin
-                
-                o_IMEM_cen_reg = 1;
->>>>>>> 450f3068a4b9aab97bce2b331dd92c6474b15f96
                 if (mem_to_reg  == `MEM2REG_MEM) begin
+                    Reg_write = 0;
                     next_s = `s_MEMORY;
                 end
-                else next_s = `s_ALU;
+                else begin
+                    Reg_write = 0;
+                    next_s = `s_ALU;
+                end
             end
             `s_MEMORY : begin
+                Reg_write = 0;
                 next_s = (mem_read) ? `s_READ : `s_WRITE;
             end
             `s_WRITE : begin
@@ -276,16 +251,9 @@ module CHIP #(                                                                  
                     next_s = `s_OUT;
                 end
                 else begin
+                    Reg_write = 0;
                     next_s = `s_WRITE;
                 end
-
-                /*if(flag == 1) begin
-                    od_next = 1;
-                end
-                else begin
-                    od_next = 0;
-                end
-                flag = 1;*/
             end
             `s_READ :  begin
                 if(!i_DMEM_stall) begin
@@ -293,16 +261,9 @@ module CHIP #(                                                                  
                     next_s = `s_OUT;
                 end
                 else begin
+                    Reg_write = 0;
                     next_s = `s_READ;
                 end
-
-                /*if(flag == 1) begin
-                    od_next = 1;
-                end
-                else begin
-                    od_next = 0;
-                end
-                flag = 1;*/
             end
             `s_ALU : begin
                 if(!i_DMEM_stall && alu_ready) begin
@@ -310,37 +271,18 @@ module CHIP #(                                                                  
                     next_s = `s_OUT;
                 end
                 else begin
+                    Reg_write = 0;
                     next_s = `s_ALU;
                 end
-<<<<<<< HEAD
             end
             `s_OUT : begin
                 Reg_write = 0;
                 next_s = `s_IDLE;
-=======
-
-                /*if(flag == 1) begin
-                    od_next = 1;
-                end
-                else begin
-                    od_next = 0;
-                end
-                flag = 1;*/
-                 
             end
-            `s_OUT : begin
+            default : begin
+                Reg_write = 0;
                 next_s = `s_IDLE;
-                //od_next = 0;
-                if(flag == 1) begin
-                    od_next = 1;
-                end
-                else begin
-                    od_next = 0;
-                end
-                flag = 1;
->>>>>>> 450f3068a4b9aab97bce2b331dd92c6474b15f96
             end
-            default : next_s = `s_IDLE;
         endcase
     end
     
@@ -711,7 +653,9 @@ module MULDIV_unit(
                 buffer = ({first, 32'b0} + shift_reg) >> 1;
                 next_shift_reg = buffer[63:0];
             end
-            default : next_state = IDLE;
+            default : begin
+                next_shift_reg = 0;
+            end
         endcase
     end
 

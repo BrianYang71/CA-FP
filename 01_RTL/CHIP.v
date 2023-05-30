@@ -18,6 +18,7 @@
 `define XOR  4'b0110
 `define AND  4'b0111
 `define MUL  4'b1000
+// Branch signal
 `define BEQ  3'b000
 `define BNE  3'b001
 `define BLT  3'b100
@@ -33,7 +34,6 @@
 `define PCCTRL_PC_PLUS_IMM 2'b00
 `define PCCTRL_RS1_PLUS_IMM 2'b01
 `define PCCTRL_PC_PLUS_4 2'b10
-`define PCCTRL_AUIPC 2'b11
 
 `define FROM_RS2 1'b0
 `define FROM_IMM 1'b1
@@ -86,7 +86,6 @@ module CHIP #(                                                                  
         wire [BIT_W-1:0] mem_addr, mem_wdata, mem_rdata;
         reg [31:0] o_DMEM_addr_reg;
         reg [31:0] o_DMEM_wdata_reg;
-        reg o_IMEM_cen_reg;
         reg [2:0] s, next_s;
 
     // Instruction associated
@@ -101,12 +100,15 @@ module CHIP #(                                                                  
         wire [31:0] IMMGen_out;
 
     // Type Control associated
+        wire is_branch;
         wire [1:0] mem_to_reg;
         wire [1:0] pc_ctrl;
         wire mem_read;
         wire mem_write;
         wire alu_src;
         wire reg_write_or_not;
+        // wire Reg_write;
+        reg Reg_write;
 
     // Memory associated
         wire [31:0] rs1_data;
@@ -119,9 +121,9 @@ module CHIP #(                                                                  
 
     // TODO: any wire assignment
         assign o_IMEM_addr = PC;
-        assign o_IMEM_cen = o_IMEM_cen_reg;
-        assign o_DMEM_cen = mem_write | mem_read;
-        assign o_DMEM_wen = mem_write;
+        assign o_IMEM_cen = (s != `s_OUT) ? 1 : 0;
+        assign o_DMEM_cen = (mem_write | mem_read) && (s==`s_MEMORY);
+        assign o_DMEM_wen = mem_write && (s==`s_MEMORY);
         assign o_DMEM_addr = (mem_to_reg  == `MEM2REG_MEM) ? (rs1_data + IMMGen_out) : 0;
         assign o_DMEM_wdata = (o_DMEM_wen) ? rs2_data : 0;
 
@@ -133,17 +135,18 @@ module CHIP #(                                                                  
         assign opcode = i_IMEM_data[6:0];
         assign funct3 = i_IMEM_data[14:12];
         assign funct7 = i_IMEM_data[31:25];
-
-    // Type Control associated        
+        
+        // assign Reg_write = (reg_write_or_not && (s==`s_OUT)) ? 1 : 0;      
 
     // B-type Jump associated
         wire if_jump;
-
     // ALU Control & ALU associated
         wire [3:0] alu_ctrl;
         wire [31:0] result_out;
         wire alu_ready; 
         reg [31:0] alu_B_input;
+
+        reg [3:0] stalldelay, next_stalldelay;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -153,7 +156,7 @@ module CHIP #(                                                                  
     Reg_file reg0(               
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
-        .wen    (reg_write_or_not),          
+        .wen    (Reg_write),          
         .rs1    (rs1),                
         .rs2    (rs2),                
         .rd     (rd),                 
@@ -169,7 +172,7 @@ module CHIP #(                                                                  
 
     type_ctrl type_C(
         .opcode(opcode),
-        .jump(jump),
+        .is_branch(is_branch),
         .mem_to_reg(mem_to_reg),
         .pc_ctrl(pc_ctrl),
         .mem_read(mem_read),
@@ -214,27 +217,20 @@ module CHIP #(                                                                  
         end
         
         else begin
-            if (s == `s_OUT) begin
-                PC <= next_PC;
-                o_IMEM_cen_reg <= 0;
-            end
+            PC <= next_PC;
             s <= next_s;
         end
     end
+
+    // always @()
 
     //FSM for the top level
     always @(*) begin
         case(s)
             `s_IDLE : begin
-                //if(i_DMEM_stall == 0) begin
-                    next_s = `s_INSTRU;
-                //end
-                /*else begin
-                    next_s = `s_IDLE;
-                end*/
+                next_s = `s_INSTRU;
             end
             `s_INSTRU : begin
-                o_IMEM_cen_reg = 1;
                 if (mem_to_reg  == `MEM2REG_MEM) begin
                     next_s = `s_MEMORY;
                 end
@@ -244,7 +240,8 @@ module CHIP #(                                                                  
                 next_s = (mem_read) ? `s_READ : `s_WRITE;
             end
             `s_WRITE : begin
-                if(i_DMEM_stall == 0) begin
+                if(!i_DMEM_stall) begin
+                    Reg_write = reg_write_or_not;
                     next_s = `s_OUT;
                 end
                 else begin
@@ -252,7 +249,8 @@ module CHIP #(                                                                  
                 end
             end
             `s_READ :  begin
-                if(i_DMEM_stall == 0) begin
+                if(!i_DMEM_stall) begin
+                    Reg_write = reg_write_or_not;
                     next_s = `s_OUT;
                 end
                 else begin
@@ -260,15 +258,18 @@ module CHIP #(                                                                  
                 end
             end
             `s_ALU : begin
-                if(i_DMEM_stall == 0 && alu_ready == 1) begin
+                if(!i_DMEM_stall && alu_ready) begin
+                    Reg_write = reg_write_or_not;
                     next_s = `s_OUT;
                 end
                 else begin
                     next_s = `s_ALU;
                 end
-                 
             end
-            `s_OUT : next_s = `s_IDLE;
+            `s_OUT : begin
+                Reg_write = 0;
+                next_s = `s_IDLE;
+            end
             default : next_s = `s_IDLE;
         endcase
     end
@@ -284,19 +285,19 @@ module CHIP #(                                                                  
         endcase
     end
 
-    // Choose data to save into memory
-   
-    
-
     // Setting PC value 
-    always @(*) begin        
-        case(pc_ctrl)
-            `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
-            `PCCTRL_PC_PLUS_IMM : next_PC = (if_jump || opcode==`UJ_JAL) ? (PC + IMMGen_out) : (PC + 4);
-            `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + IMMGen_out;
-            `PCCTRL_AUIPC : next_PC = PC + 4;
-            default : next_PC = PC;
-        endcase
+    always @(*) begin   
+        if (!o_IMEM_cen) begin     
+            case(pc_ctrl)
+                `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
+                `PCCTRL_PC_PLUS_IMM : next_PC = (if_jump || opcode==`UJ_JAL || opcode==`I_JALR) ? (PC + IMMGen_out) : (PC + 4);
+                `PCCTRL_RS1_PLUS_IMM : next_PC =  rs1_data + IMMGen_out;
+                default : next_PC = PC;
+            endcase
+        end
+        else begin
+            next_PC = PC;
+        end
     end
 
     // Choose ALU input
@@ -307,7 +308,6 @@ module CHIP #(                                                                  
             default : alu_B_input = rs2_data;
         endcase
     end
-
 endmodule
 
    
@@ -381,7 +381,7 @@ endmodule
 
 module type_ctrl(
     input   [6:0]   opcode,
-    output  reg   jump,  // B-type checking whether jumping or not
+    output  reg   is_branch,
     output  reg   [1:0] mem_to_reg,
     output  reg   [1:0] pc_ctrl,
     output  reg   mem_read,
@@ -392,6 +392,7 @@ module type_ctrl(
     always @(*) begin
         case(opcode)
             `R_TYPE : begin
+                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_ALU;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -400,6 +401,7 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `I_TYPE : begin
+                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_ALU;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -408,6 +410,7 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `I_JALR : begin
+                is_branch   = 1;
                 mem_to_reg  = `MEM2REG_PC_PLUS_4;
                 pc_ctrl     = `PCCTRL_RS1_PLUS_IMM;
                 mem_read    = 0;
@@ -416,6 +419,7 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `I_LOAD : begin
+                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_MEM;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 1;
@@ -424,6 +428,7 @@ module type_ctrl(
                 reg_write   = 1;
             end
             `S_TYPE : begin
+                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_MEM;
                 pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
@@ -432,6 +437,7 @@ module type_ctrl(
                 reg_write   = 0;
             end
             `B_TYPE : begin
+                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_ALU;
                 pc_ctrl     = `PCCTRL_PC_PLUS_IMM;
                 mem_read    = 0;
@@ -440,14 +446,16 @@ module type_ctrl(
                 reg_write   = 0;
             end
             `U_TYPE : begin
+                is_branch   = 0;
                 mem_to_reg  = `MEM2REG_PC_PLUS_IMM;
-                pc_ctrl     = `PCCTRL_AUIPC;
+                pc_ctrl     = `PCCTRL_PC_PLUS_4;
                 mem_read    = 0;
                 mem_write   = 0;
                 alu_src     = `FROM_RS2;
                 reg_write   = 1;
             end
             `UJ_JAL : begin
+                is_branch   = 1;
                 mem_to_reg  = `MEM2REG_PC_PLUS_4;
                 pc_ctrl     = `PCCTRL_PC_PLUS_IMM;
                 mem_read    = 0;
@@ -456,6 +464,7 @@ module type_ctrl(
                 reg_write   = 1;
             end
             default : begin
+                is_branch   = 0;
                 mem_to_reg  = 0;
                 pc_ctrl     = 0;
                 mem_read    = 0;
@@ -485,6 +494,40 @@ module B_type_jump(
             default : jump_or_not_reg = 0;
         endcase
     end     
+endmodule
+
+module ALUControl(
+    input   [6:0]   opcode,
+    input   [2:0]   funct3,
+    input   [6:0]   funct7,
+    output  reg [3:0]   alu_ctrl
+);
+    always @(*) begin 
+        case(opcode)
+            `R_TYPE : begin
+                if(funct7 == 7'b0000001)
+                    alu_ctrl = `MUL;
+                else begin
+                    case(funct3)
+                        3'b000: alu_ctrl = (funct7 == 0 ? `ADD : `SUB);
+                        3'b100: alu_ctrl = `XOR;
+                        3'b111: alu_ctrl = `AND;
+                        default: alu_ctrl = `ADD;
+                    endcase
+                end
+            end
+            `I_TYPE : begin
+                case(funct3)
+                    3'b000: alu_ctrl = `ADDI;   
+                    3'b010: alu_ctrl = `SLTI;    
+                    3'b001: alu_ctrl = `SLLI;    
+                    3'b101: alu_ctrl = `SRAI;
+                    default: alu_ctrl = `ADDI;
+                endcase
+            end
+            default: alu_ctrl = `ADD;
+        endcase
+    end
 endmodule
 
 module ALU(
@@ -532,40 +575,6 @@ module ALU(
             `SRAI : alu_result = $signed(A_input) >>> $signed(B_input);
             `MUL : alu_result = muldiv_result[31:0];
             default : alu_result = 0;
-        endcase
-    end
-endmodule
-
-module ALUControl(
-    input   [6:0]   opcode,
-    input   [2:0]   funct3,
-    input   [6:0]   funct7,
-    output  reg [3:0]   alu_ctrl
-);
-    always @(*) begin 
-        case(opcode)
-            `R_TYPE : begin
-                if(funct7 == 7'b0000001)
-                    alu_ctrl = `MUL;
-                else begin
-                    case(funct3)
-                        3'b000: alu_ctrl = (funct7 == 0 ? `ADD : `SUB);
-                        3'b100: alu_ctrl = `XOR;
-                        3'b111: alu_ctrl = `AND;
-                        default: alu_ctrl = `ADD;
-                    endcase
-                end
-            end
-            `I_TYPE : begin
-                case(funct3)
-                    3'b000: alu_ctrl = `ADDI;   
-                    3'b010: alu_ctrl = `SLTI;    
-                    3'b001: alu_ctrl = `SLLI;    
-                    3'b101: alu_ctrl = `SRAI;
-                    default: alu_ctrl = `ADDI;
-                endcase
-            end
-            default: alu_ctrl = `ADD;
         endcase
     end
 endmodule

@@ -35,8 +35,13 @@ L1:
     jalr x0, 0(x1)
     
 main:
+    addi sp, sp, -4
+    sw x1, 0(sp)
     jal x1, rec
     addi t0, a0, 0
+    lw x1, 0(sp)
+    addi sp, sp, 4
+    jalr x0, 0(x1)
 
 # Do NOT modify this part!!!
 __start:

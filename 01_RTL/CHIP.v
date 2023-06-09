@@ -122,8 +122,8 @@ module CHIP #(                                                                  
     // TODO: any wire assignment
         assign o_IMEM_addr = PC;
         assign o_IMEM_cen = (s != `s_OUT) ? 1 : 0;
-        assign o_DMEM_cen = (mem_write | mem_read) && (s==`s_MEMORY);
-        assign o_DMEM_wen = mem_write && (s==`s_MEMORY);
+        assign o_DMEM_cen = (mem_write | mem_read) && (s==`s_READ || s==`s_WRITE);
+        assign o_DMEM_wen = mem_write && (s==`s_READ || s==`s_WRITE);
         assign o_DMEM_addr = (mem_to_reg  == `MEM2REG_MEM) ? (rs1_data + IMMGen_out) : 0;
         assign o_DMEM_wdata = (o_DMEM_wen) ? rs2_data : 0;
 
@@ -213,7 +213,7 @@ module CHIP #(                                                                  
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
-            s <= `s_IDLE;
+            s <= `s_INSTRU;
         end
         
         else begin
@@ -227,24 +227,25 @@ module CHIP #(                                                                  
     //FSM for the top level
     always @(*) begin
         case(s)
-            `s_IDLE : begin
-                Reg_write = 0;
-                next_s = `s_INSTRU;
-            end
+            // `s_IDLE : begin
+            //     Reg_write = 0;
+            //     next_s = `s_INSTRU;
+            // end
             `s_INSTRU : begin
                 if (mem_to_reg  == `MEM2REG_MEM) begin
                     Reg_write = 0;
-                    next_s = `s_MEMORY;
+                    // next_s = `s_MEMORY;
+                    next_s = (mem_read) ? `s_READ : `s_WRITE;
                 end
                 else begin
                     Reg_write = 0;
                     next_s = `s_ALU;
                 end
             end
-            `s_MEMORY : begin
-                Reg_write = 0;
-                next_s = (mem_read) ? `s_READ : `s_WRITE;
-            end
+            // `s_MEMORY : begin
+            //     Reg_write = 0;
+            //     next_s = (mem_read) ? `s_READ : `s_WRITE;
+            // end
             `s_WRITE : begin
                 if(!i_DMEM_stall) begin
                     Reg_write = reg_write_or_not;
@@ -277,11 +278,11 @@ module CHIP #(                                                                  
             end
             `s_OUT : begin
                 Reg_write = 0;
-                next_s = `s_IDLE;
+                next_s = `s_INSTRU;
             end
             default : begin
                 Reg_write = 0;
-                next_s = `s_IDLE;
+                next_s = `s_INSTRU;
             end
         endcase
     end
@@ -708,4 +709,84 @@ module Cache#(
     //---------------------------------------//
 
     // Todo: BONUS
+    
+    // Implement: 64 blocks, directed cache
+    // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit
+    wire [23:0]     Tag;
+    wire [7:0]      Index;
+    assign Tag = i_proc_addr[31:8];
+    assign Index = i_proc_addr[7:2] % 63;
+
+    // Cache
+    reg         hit_or_miss;
+    reg         cache_valid[0:63], next_cache_valid[0:63];
+    reg [23:0]  cache_tag[0:63], next_cache_tag[0:63];
+    reg [31:0]  cache_data[0:63], next_cache_data[0:63];
+
+    // FSM
+    reg [2:0] state, next_state;
+    parameter S_IDLE = 3'd0;
+    parameter S_READ = 3'd1;
+    parameter S_WRITE = 3'd2;
+    parameter S_ALLO = 3'd3;
+    // parameter S_IDLE = 3'd0;
+
+    always @(*) begin
+        case(state)
+            S_IDLE : begin
+                if (i_proc_cen && !i_proc_wen) next_state = S_READ;
+                else if (i_proc_cen && i_proc_wen) next_state = S_WRITE;
+                else next_state = S_IDLE; 
+            end
+            // 判斷
+            S_READ : begin
+                // Hit
+                if(cache_valid[Index] && (Tag==cache_tag[Index])) begin
+                    next_cache_valid[Index] = 1;
+                    next_cache_tag[Index] = cache_tag[Index];
+                    next_cache_data[Index] = cache_data[Index];
+                    next_state = S_IDLE;
+                end
+                // Miss, Tag不同
+                if(cache_valid[Index] && (Tag!=cache_tag[Index])) begin
+                    next_cache_valid[Index] = 1;
+                    next_cache_tag[Index] = Tag;
+                    next_cache_data[Index] = i_mem_rdata;
+                    next_state = S_WRITE;
+                end
+                // First Miss, 第一次開cache
+                if(!cache_valid[Index] && !(Tag==cache_tag[Index])) begin
+                    next_cache_valid[Index] = 1;
+                    next_cache_tag[Index] = Tag;
+                    next_cache_data[Index] = i_mem_rdata;
+                    next_state = S_ALLO;
+                end
+                else next_state = S_READ;
+            end
+            S_WRITE : begin
+            end
+            S_ALLO : begin
+            end
+        endcase
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state <= S_IDLE;
+            for (idx=0; idx<64; idx = idx+1) begin
+                cache_valid[idx] <= 1'b0;
+                cache_tag[idx] <= 24'b0;
+                cache_data[idx] <= 32'b0;
+            end
+        end
+        else begin
+            state <= next_state;
+            for (idx=0; idx<64; idx = idx+1) begin
+                cache_valid[idx] <= next_cache_valid[idx];
+                cache_tag[idx] <= next_cache_tag[idx];
+                cache_data[idx] <= next_cache_data[idx];
+            end
+        end
+    end
+    
 endmodule

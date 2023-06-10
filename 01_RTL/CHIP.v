@@ -680,7 +680,6 @@ module MULDIV_unit(
     end
 
 endmodule
-
 module Cache#(
         parameter BIT_W = 32,
         parameter ADDR_W = 32
@@ -705,12 +704,12 @@ module Cache#(
 
     //---------------------------------------//
     //          default connection           //
-    assign o_mem_cen = i_proc_cen;        //
-    assign o_mem_wen = i_proc_wen;        //
-    assign o_mem_addr = i_proc_addr;      //
-    assign o_mem_wdata = i_proc_wdata;    //
-    assign o_proc_rdata = i_mem_rdata;    //
-    assign o_proc_stall = i_mem_stall;    //
+    // assign o_mem_cen = i_proc_cen;        //
+    // assign o_mem_wen = i_proc_wen;        //
+    // assign o_mem_addr = i_proc_addr;      //
+    // assign o_mem_wdata = i_proc_wdata;    //
+    // assign o_proc_rdata = i_mem_rdata;    //
+    // assign o_proc_stall = i_mem_stall;    //
     //---------------------------------------//
 
     // Todo: BONUS
@@ -727,12 +726,12 @@ module Cache#(
     reg hit_or_miss;
     integer idx;
 
-    // assign o_mem_cen = (!hit_or_miss && i_proc_cen);        
-    // assign o_mem_wen = (i_proc_wen && i_proc_cen);        
-    // assign o_mem_addr = i_proc_addr;      
-    // assign o_mem_wdata = i_proc_wdata;    
-    // assign o_proc_rdata = reg_o_proc_rdata;  
-    // assign o_proc_stall = i_mem_stall;//(state==S_DONE || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
+    assign o_mem_cen = (!hit_or_miss && i_proc_cen);        
+    assign o_mem_wen = (i_proc_wen && i_proc_cen);        
+    assign o_mem_addr = i_proc_addr;      
+    assign o_mem_wdata = i_proc_wdata;    
+    assign o_proc_rdata = reg_o_proc_rdata;  
+    assign o_proc_stall = i_mem_stall;//(state==S_DONE || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
 
     // Implement: 64 blocks, directed cache
     // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit
@@ -782,14 +781,14 @@ module Cache#(
                 // Miss
                 next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
-                next_cache_data[Index] = (!i_mem_stall) ? i_mem_rdata : 0;
-                reg_o_proc_rdata = (!i_mem_stall) ? i_mem_rdata : 0;
+                next_cache_data[Index] = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;
+                reg_o_proc_rdata = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;
                 next_state = (!i_mem_stall) ? S_IDLE : S_READ;
             end
             S_WRITE : begin
                 next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
-                next_cache_data[Index] = i_proc_wdata;
+                next_cache_data[Index] = i_proc_wdata;//(!i_mem_stall) ? i_proc_wdata : 0;
                 reg_o_proc_rdata = 0;
                 next_state = (!i_mem_stall) ? S_IDLE : S_WRITE;
             end

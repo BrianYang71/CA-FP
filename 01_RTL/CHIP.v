@@ -239,7 +239,13 @@ module CHIP #(                                                                  
                 end
                 else begin
                     Reg_write = 0;
-                    next_s = `s_ALU;
+                    if(alu_ctrl == `MUL) begin
+                        next_s = `s_ALU;
+                    end
+                    else begin
+                        Reg_write = reg_write_or_not;
+                        next_s = `s_OUT;
+                    end
                 end
             end
             // `s_MEMORY : begin
@@ -699,12 +705,12 @@ module Cache#(
 
     //---------------------------------------//
     //          default connection           //
-    // assign o_mem_cen = i_proc_cen;        //
-    // assign o_mem_wen = i_proc_wen;        //
-    // assign o_mem_addr = i_proc_addr;      //
-    // assign o_mem_wdata = i_proc_wdata;    //
-    // assign o_proc_rdata = i_mem_rdata;    //
-    // assign o_proc_stall = i_mem_stall;    //
+    assign o_mem_cen = i_proc_cen;        //
+    assign o_mem_wen = i_proc_wen;        //
+    assign o_mem_addr = i_proc_addr;      //
+    assign o_mem_wdata = i_proc_wdata;    //
+    assign o_proc_rdata = i_mem_rdata;    //
+    assign o_proc_stall = i_mem_stall;    //
     //---------------------------------------//
 
     // Todo: BONUS
@@ -721,12 +727,12 @@ module Cache#(
     reg hit_or_miss;
     integer idx;
 
-    assign o_mem_cen = (!hit_or_miss && i_proc_cen);        
-    assign o_mem_wen = (i_proc_wen && i_proc_cen);        
-    assign o_mem_addr = i_proc_addr;      
-    assign o_mem_wdata = i_proc_wdata;    
-    assign o_proc_rdata = reg_o_proc_rdata;  
-    assign o_proc_stall = i_mem_stall;//(state==S_DONE || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
+    // assign o_mem_cen = (!hit_or_miss && i_proc_cen);        
+    // assign o_mem_wen = (i_proc_wen && i_proc_cen);        
+    // assign o_mem_addr = i_proc_addr;      
+    // assign o_mem_wdata = i_proc_wdata;    
+    // assign o_proc_rdata = reg_o_proc_rdata;  
+    // assign o_proc_stall = i_mem_stall;//(state==S_DONE || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
 
     // Implement: 64 blocks, directed cache
     // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit

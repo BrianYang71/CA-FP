@@ -700,36 +700,44 @@ module Cache#(
 
     //---------------------------------------//
     //          default connection           //
-    assign o_mem_cen = i_proc_cen;        //
-    assign o_mem_wen = i_proc_wen;        //
-    assign o_mem_addr = i_proc_addr;      //
-    assign o_mem_wdata = i_proc_wdata;    //
-    assign o_proc_rdata = i_mem_rdata;    //
-    assign o_proc_stall = i_mem_stall;    //
+    // assign o_mem_cen = i_proc_cen;        //
+    // assign o_mem_wen = i_proc_wen;        //
+    // assign o_mem_addr = i_proc_addr;      //
+    // assign o_mem_wdata = i_proc_wdata;    //
+    // assign o_proc_rdata = i_mem_rdata;    //
+    // assign o_proc_stall = i_mem_stall;    //
     //---------------------------------------//
 
     // Todo: BONUS
-    
-    // Implement: 64 blocks, directed cache
-    // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit
-    wire [23:0]     Tag;
-    wire [7:0]      Index;
-    assign Tag = i_proc_addr[31:8];
-    assign Index = i_proc_addr[7:2] % 63;
-
-    // Cache
-    reg         hit_or_miss;
-    reg         cache_valid[0:63], next_cache_valid[0:63];
-    reg [23:0]  cache_tag[0:63], next_cache_tag[0:63];
-    reg [31:0]  cache_data[0:63], next_cache_data[0:63];
-
     // FSM
     reg [2:0] state, next_state;
     parameter S_IDLE = 3'd0;
     parameter S_READ = 3'd1;
     parameter S_WRITE = 3'd2;
     parameter S_ALLO = 3'd3;
-    // parameter S_IDLE = 3'd0;
+    parameter S_OUT = 3'd4;
+
+    reg [31:0] reg_o_proc_rdata, next_reg_o_proc_rdata;
+
+    assign o_mem_cen = (state==S_ALLO || state==S_WRITE) ? 1 : 0;        
+    assign o_mem_wen = (state==S_WRITE) ? 1 : 0;        
+    assign o_mem_addr = i_proc_addr;      
+    assign o_mem_wdata = i_proc_wdata;    
+    assign o_proc_rdata = reg_o_proc_rdata;  
+    assign o_proc_stall = (state==S_OUT || !i_proc_cen) ? 0 : 1;    
+
+    // Implement: 64 blocks, directed cache
+    // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit
+    wire [23:0]     Tag;
+    wire [7:0]      Index;
+    assign Tag = i_proc_addr[31:8];
+    assign Index = i_proc_addr[7:2] % 64;
+
+    // Cache
+    reg         cache_valid[0:63], next_cache_valid[0:63];
+    reg [23:0]  cache_tag[0:63], next_cache_tag[0:63];
+    reg [31:0]  cache_data[0:63], next_cache_data[0:63];
+
 
     always @(*) begin
         case(state)
@@ -742,42 +750,52 @@ module Cache#(
             S_READ : begin
                 // Hit
                 if(cache_valid[Index] && (Tag==cache_tag[Index])) begin
+                    // hit_or_miss = 1;
                     next_cache_valid[Index] = 1;
                     next_cache_tag[Index] = cache_tag[Index];
                     next_cache_data[Index] = cache_data[Index];
-                    next_state = S_IDLE;
+                    next_reg_o_proc_rdata = cache_data[Index];
+                    next_state = S_OUT;
                 end
-                // Miss, Tag不同
-                if(cache_valid[Index] && (Tag!=cache_tag[Index])) begin
-                    next_cache_valid[Index] = 1;
-                    next_cache_tag[Index] = Tag;
-                    next_cache_data[Index] = i_mem_rdata;
-                    next_state = S_WRITE;
-                end
-                // First Miss, 第一次開cache
-                if(!cache_valid[Index] && !(Tag==cache_tag[Index])) begin
-                    next_cache_valid[Index] = 1;
-                    next_cache_tag[Index] = Tag;
-                    next_cache_data[Index] = i_mem_rdata;
+                // Miss
+                else begin
+                    // hit_or_miss = 0;
+                    next_cache_valid[Index] = cache_valid[Index];
+                    next_cache_tag[Index] = cache_tag[Index];
+                    next_cache_data[Index] = cache_data[Index];
+                    next_reg_o_proc_rdata = reg_o_proc_rdata; //先維持原本資料不要輸出
                     next_state = S_ALLO;
                 end
-                else next_state = S_READ;
             end
             S_WRITE : begin
+                next_cache_valid[Index] = 1;
+                next_cache_tag[Index] = Tag;
+                next_cache_data[Index] = i_proc_wdata;
+                next_state = (i_proc_wen && !i_mem_stall) ? S_OUT : S_WRITE;
             end
             S_ALLO : begin
+                next_cache_valid[Index] = 1;
+                next_cache_tag[Index] = Tag;
+                next_cache_data[Index] = i_mem_rdata;
+                next_reg_o_proc_rdata = i_mem_rdata;
+                next_state = (!i_mem_stall) ? S_OUT : S_ALLO;
+            end
+            S_OUT : begin
+                next_state = S_IDLE;
             end
         endcase
     end
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    reg [5:0] idx;
+    always @(posedge i_clk or negedge i_rst_n) begin
+        if (!i_rst_n) begin
             state <= S_IDLE;
             for (idx=0; idx<64; idx = idx+1) begin
                 cache_valid[idx] <= 1'b0;
                 cache_tag[idx] <= 24'b0;
                 cache_data[idx] <= 32'b0;
             end
+            reg_o_proc_rdata <= 0;
         end
         else begin
             state <= next_state;
@@ -786,6 +804,7 @@ module Cache#(
                 cache_tag[idx] <= next_cache_tag[idx];
                 cache_data[idx] <= next_cache_data[idx];
             end
+            reg_o_proc_rdata <= next_reg_o_proc_rdata;
         end
     end
     

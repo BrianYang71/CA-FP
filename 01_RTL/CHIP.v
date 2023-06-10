@@ -289,7 +289,6 @@ module CHIP #(                                                                  
     
     // Choose data to write into reg
     always @(*) begin
-        
         case(mem_to_reg)
             `MEM2REG_PC_PLUS_4 : rd_data = PC + 4;
             `MEM2REG_ALU : rd_data = result_out;
@@ -716,22 +715,24 @@ module Cache#(
     parameter S_WRITE = 3'd2;
     parameter S_ALLO = 3'd3;
     parameter S_OUT = 3'd4;
+    parameter S_DONE = 3'd5;
 
     reg [31:0] reg_o_proc_rdata, next_reg_o_proc_rdata;
+    reg hit_or_miss;
 
-    assign o_mem_cen = (state==S_ALLO || state==S_WRITE) ? 1 : 0;        
-    assign o_mem_wen = (state==S_WRITE) ? 1 : 0;        
+    assign o_mem_cen = (!hit_or_miss) ? 1 : 0;        
+    assign o_mem_wen = (!hit_or_miss && i_proc_wen) ? 1 : 0;        
     assign o_mem_addr = i_proc_addr;      
     assign o_mem_wdata = i_proc_wdata;    
     assign o_proc_rdata = reg_o_proc_rdata;  
-    assign o_proc_stall = (state==S_OUT || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
+    assign o_proc_stall = i_mem_stall;//(state==S_DONE || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
 
     // Implement: 64 blocks, directed cache
     // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit
     wire [23:0]     Tag;
     wire [5:0]      Index;
     assign Tag = i_proc_addr[31:8];
-    assign Index = i_proc_addr[7:2] % 64;
+    assign Index = i_proc_addr[7:2];
 
     // Cache
     reg         cache_valid[0:63], next_cache_valid[0:63];
@@ -742,48 +743,58 @@ module Cache#(
     always @(*) begin
         case(state)
             S_IDLE : begin
-                if (i_proc_cen && !i_proc_wen) next_state = S_READ;
-                else if (i_proc_cen && i_proc_wen) next_state = S_WRITE;
+                if (i_proc_cen && !i_proc_wen) begin
+                    // Hit
+                    if(cache_valid[Index] && (Tag==cache_tag[Index])) begin
+                        hit_or_miss = 1;
+                        next_cache_valid[Index] = 1;
+                        next_cache_tag[Index] = cache_tag[Index];
+                        next_cache_data[Index] = cache_data[Index];
+                        reg_o_proc_rdata = cache_data[Index];
+                        next_state = S_IDLE;
+                    end
+                    else begin
+                        hit_or_miss = 0; 
+                        next_state = S_READ;
+                    end
+                end
+                else if (i_proc_cen && i_proc_wen) begin
+                    hit_or_miss = 0;
+                    next_state = S_WRITE;
+                end
                 else next_state = S_IDLE; 
             end
             // 判斷
             S_READ : begin
-                // Hit
-                if(cache_valid[Index] && (Tag==cache_tag[Index])) begin
-                    // hit_or_miss = 1;
-                    next_cache_valid[Index] = 1;
-                    next_cache_tag[Index] = cache_tag[Index];
-                    next_cache_data[Index] = cache_data[Index];
-                    next_reg_o_proc_rdata = cache_data[Index];
-                    next_state = S_OUT;
-                end
                 // Miss
-                else begin
-                    // hit_or_miss = 0;
-                    next_cache_valid[Index] = cache_valid[Index];
-                    next_cache_tag[Index] = cache_tag[Index];
-                    next_cache_data[Index] = cache_data[Index];
-                    next_reg_o_proc_rdata = reg_o_proc_rdata; //先維持原本資料不要輸出
-                    next_state = S_ALLO;
-                end
+                    next_cache_valid[Index] = 1;
+                    next_cache_tag[Index] = Tag;
+                    next_cache_data[Index] = (!i_mem_stall) ? i_mem_rdata : cache_data[Index];
+                    next_reg_o_proc_rdata = (!i_mem_stall) ? i_mem_rdata : cache_data[Index];
+                    next_state = (!i_mem_stall) ? S_IDLE : S_READ;
             end
             S_WRITE : begin
                 next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
                 next_cache_data[Index] = i_proc_wdata;
-                next_state = (i_proc_wen && !i_mem_stall) ? S_OUT : S_WRITE;
+                next_reg_o_proc_rdata = reg_o_proc_rdata;
+                next_state = (!i_mem_stall) ? S_IDLE : S_WRITE;
             end
-            S_ALLO : begin
-                next_cache_valid[Index] = 1;
-                next_cache_tag[Index] = Tag;
-                next_cache_data[Index] = i_mem_rdata;
-                next_reg_o_proc_rdata = i_mem_rdata;
-                next_state = (!i_mem_stall) ? S_OUT : S_ALLO;
-            end
-            S_OUT : begin
+            // S_ALLO : begin
+            //     next_cache_valid[Index] = 1;
+            //     next_cache_tag[Index] = Tag;
+            //     next_cache_data[Index] = (!i_mem_stall) ? i_mem_rdata : cache_data[Index];
+            //     next_reg_o_proc_rdata = (!i_mem_stall) ? i_mem_rdata : cache_data[Index];
+            //     next_state = (!i_mem_stall) ? S_OUT : S_ALLO;
+            // end
+
+            default begin
+                next_cache_valid[Index] = cache_valid[Index];
+                next_cache_tag[Index] = cache_tag[Index];
+                next_cache_data[Index] = cache_data[Index];
+                next_reg_o_proc_rdata = reg_o_proc_rdata;
                 next_state = S_IDLE;
             end
-            default next_state = S_IDLE;
         endcase
     end
 

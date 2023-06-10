@@ -189,6 +189,7 @@ module CHIP #(                                                                  
     );
 
     ALU alu(
+        .o_IMEM_cen(o_IMEM_cen),
         .clk(i_clk),
         .rst_n(i_rst_n),
         .A_input(rs1_data),
@@ -550,6 +551,7 @@ module ALUControl(
 endmodule
 
 module ALU(
+    input o_IMEM_cen,
     input clk,
     input rst_n,
     input [31:0] A_input,
@@ -568,7 +570,7 @@ module ALU(
     assign result_out = (alu_ready) ? alu_result : 0;
 
     // valid, mode, ready(in module MulDiv)
-    assign valid = (alu_ctrl == `MUL);
+    assign valid = (alu_ctrl == `MUL && o_IMEM_cen);
     assign mode = 0;
 
     MULDIV_unit muldiv(
@@ -714,7 +716,7 @@ module Cache#(
 
     // Todo: BONUS
     // FSM
-    reg [2:0] state, next_state;
+    reg [2:0] cachestate, next_cachestate;
     parameter S_IDLE = 3'd0;
     parameter S_READ = 3'd1;
     parameter S_WRITE = 3'd2;
@@ -750,7 +752,7 @@ module Cache#(
 
 
     always @(*) begin
-        case(state)
+        case(cachestate)
             S_IDLE : begin
                 // READ instrction
                 if (i_proc_cen && !i_proc_wen) begin
@@ -761,20 +763,20 @@ module Cache#(
                         next_cache_tag[Index] = cache_tag[Index];
                         next_cache_data[Index] = cache_data[Index];
                         reg_o_proc_rdata = cache_data[Index];
-                        next_state = S_IDLE;
+                        next_cachestate = S_IDLE;
                     end
                     // Miss
                     else begin
                         hit_or_miss = 0; 
-                        next_state = S_READ;
+                        next_cachestate = S_READ;
                     end
                 end
                 // WRITE instrction
                 else if (i_proc_cen && i_proc_wen) begin
                     hit_or_miss = 0;
-                    next_state = S_WRITE;
+                    next_cachestate = S_WRITE;
                 end
-                else next_state = S_IDLE; 
+                else next_cachestate = S_IDLE; 
             end
             // 判斷
             S_READ : begin
@@ -783,14 +785,14 @@ module Cache#(
                 next_cache_tag[Index] = Tag;
                 next_cache_data[Index] = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;
                 reg_o_proc_rdata = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;
-                next_state = (!i_mem_stall) ? S_IDLE : S_READ;
+                next_cachestate = (!i_mem_stall) ? S_IDLE : S_READ;
             end
             S_WRITE : begin
                 next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
                 next_cache_data[Index] = i_proc_wdata;//(!i_mem_stall) ? i_proc_wdata : 0;
                 reg_o_proc_rdata = 0;
-                next_state = (!i_mem_stall) ? S_IDLE : S_WRITE;
+                next_cachestate = (!i_mem_stall) ? S_IDLE : S_WRITE;
             end
             // S_ALLO : begin
             //     next_cache_valid[Index] = 1;
@@ -807,7 +809,7 @@ module Cache#(
                     next_cache_data[idx] = cache_data[idx];
                 end
                 reg_o_proc_rdata = 0;
-                next_state = S_IDLE;
+                next_cachestate = S_IDLE;
             end
         endcase
     end
@@ -815,7 +817,7 @@ module Cache#(
     
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
-            state <= S_IDLE;
+            cachestate <= S_IDLE;
             for (idx=0; idx<64; idx = idx+1) begin
                 cache_valid[idx] <= 1'b0;
                 cache_tag[idx] <= 24'b0;
@@ -825,7 +827,7 @@ module Cache#(
             hit_or_miss <=0;
         end
         else begin
-            state <= next_state;
+            cachestate <= next_cachestate;
             for (idx=0; idx<64; idx = idx+1) begin
                 cache_valid[idx] <= next_cache_valid[idx];
                 cache_tag[idx] <= next_cache_tag[idx];

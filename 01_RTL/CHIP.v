@@ -724,12 +724,12 @@ module Cache#(
     assign o_mem_addr = i_proc_addr;      
     assign o_mem_wdata = i_proc_wdata;    
     assign o_proc_rdata = reg_o_proc_rdata;  
-    assign o_proc_stall = (state==S_OUT || !i_proc_cen) ? 0 : 1;    
+    assign o_proc_stall = (state==S_OUT || (!i_proc_cen&&(state==S_IDLE))) ? 0 : 1;    
 
     // Implement: 64 blocks, directed cache
     // Tag: 24-bit, Index: 6-bit, Byte offset: 2-bit
     wire [23:0]     Tag;
-    wire [7:0]      Index;
+    wire [5:0]      Index;
     assign Tag = i_proc_addr[31:8];
     assign Index = i_proc_addr[7:2] % 64;
 
@@ -783,6 +783,7 @@ module Cache#(
             S_OUT : begin
                 next_state = S_IDLE;
             end
+            default next_state = S_IDLE;
         endcase
     end
 

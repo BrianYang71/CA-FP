@@ -759,38 +759,95 @@ module Cache#(
                     // Hit
                     if(cache_valid[Index] && (Tag==cache_tag[Index])) begin
                         hit_or_miss = 1;
-                        next_cache_valid[Index] = 1;
+                        for (idx=0; idx<64; idx = idx+1) begin
+                            if(idx == Index) begin
+                                next_cache_valid[idx] = 1;
+                            end
+                            else begin
+                                next_cache_valid[idx] = cache_valid[idx];
+                            end                            
+                            next_cache_tag[idx] = cache_tag[idx];
+                            next_cache_data[idx] = cache_data[idx];
+                        end
+                        /*next_cache_valid[Index] = 1;
                         next_cache_tag[Index] = cache_tag[Index];
-                        next_cache_data[Index] = cache_data[Index];
+                        next_cache_data[Index] = cache_data[Index];*/
                         reg_o_proc_rdata = cache_data[Index];
                         next_cachestate = S_IDLE;
                     end
                     // Miss
                     else begin
-                        hit_or_miss = 0; 
+                        hit_or_miss = 0;
+                        for (idx=0; idx<64; idx = idx+1) begin
+                            next_cache_valid[idx] = cache_valid[idx];
+                            next_cache_tag[idx] = cache_tag[idx];
+                            next_cache_data[idx] = cache_data[idx];
+                        end
+                        reg_o_proc_rdata = cache_data[Index];
                         next_cachestate = S_READ;
                     end
                 end
                 // WRITE instrction
                 else if (i_proc_cen && i_proc_wen) begin
                     hit_or_miss = 0;
+                    for (idx=0; idx<64; idx = idx+1) begin
+                        next_cache_valid[idx] = cache_valid[idx];
+                        next_cache_tag[idx] = cache_tag[idx];
+                        next_cache_data[idx] = cache_data[idx];
+                    end
+                    reg_o_proc_rdata = 0;
                     next_cachestate = S_WRITE;
                 end
-                else next_cachestate = S_IDLE; 
+                else begin
+                    hit_or_miss = 1;                    
+                    for (idx=0; idx<64; idx = idx+1) begin
+                        next_cache_valid[idx] = cache_valid[idx];
+                        next_cache_tag[idx] = cache_tag[idx];
+                        next_cache_data[idx] = cache_data[idx];
+                    end
+                    reg_o_proc_rdata = 0;
+                    next_cachestate = S_IDLE; 
+                end
             end
             // 判斷
             S_READ : begin
                 // Miss
-                next_cache_valid[Index] = 1;
+                hit_or_miss = 0;
+                for (idx=0; idx<64; idx = idx+1) begin
+                    if(idx == Index) begin
+                        next_cache_valid[idx] = 1;
+                        next_cache_tag[idx] = Tag;
+                        next_cache_data[idx] = i_mem_rdata;
+                    end
+                    else begin
+                        next_cache_valid[idx] = cache_valid[idx];
+                        next_cache_tag[idx] = cache_tag[idx];
+                        next_cache_data[idx] = cache_data[idx];
+                    end                            
+                end
+                /*next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
-                next_cache_data[Index] = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;
+                next_cache_data[Index] = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;*/
                 reg_o_proc_rdata = i_mem_rdata;//(!i_mem_stall) ? i_mem_rdata : 0;
                 next_cachestate = (!i_mem_stall) ? S_IDLE : S_READ;
             end
             S_WRITE : begin
-                next_cache_valid[Index] = 1;
+                hit_or_miss = 0;
+                for (idx=0; idx<64; idx = idx+1) begin
+                    if(idx == Index) begin
+                        next_cache_valid[idx] = 1;
+                        next_cache_tag[idx] = Tag;
+                        next_cache_data[idx] = i_proc_wdata;
+                    end
+                    else begin
+                        next_cache_valid[idx] = cache_valid[idx];
+                        next_cache_tag[idx] = cache_tag[idx];
+                        next_cache_data[idx] = cache_data[idx];
+                    end
+                end
+                /*next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
-                next_cache_data[Index] = i_proc_wdata;//(!i_mem_stall) ? i_proc_wdata : 0;
+                next_cache_data[Index] = i_proc_wdata;//(!i_mem_stall) ? i_proc_wdata : 0;*/
                 reg_o_proc_rdata = 0;
                 next_cachestate = (!i_mem_stall) ? S_IDLE : S_WRITE;
             end
@@ -808,6 +865,7 @@ module Cache#(
                     next_cache_tag[idx] = cache_tag[idx];
                     next_cache_data[idx] = cache_data[idx];
                 end
+                hit_or_miss = 0;
                 reg_o_proc_rdata = 0;
                 next_cachestate = S_IDLE;
             end
@@ -823,8 +881,6 @@ module Cache#(
                 cache_tag[idx] <= 24'b0;
                 cache_data[idx] <= 32'b0;
             end
-            reg_o_proc_rdata <= 0;
-            hit_or_miss <=0;
         end
         else begin
             cachestate <= next_cachestate;

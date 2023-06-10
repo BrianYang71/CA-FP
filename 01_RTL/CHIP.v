@@ -713,15 +713,16 @@ module Cache#(
     parameter S_IDLE = 3'd0;
     parameter S_READ = 3'd1;
     parameter S_WRITE = 3'd2;
-    parameter S_ALLO = 3'd3;
-    parameter S_OUT = 3'd4;
-    parameter S_DONE = 3'd5;
+    // parameter S_ALLO = 3'd3;
+    // parameter S_OUT = 3'd4;
+    // parameter S_DONE = 3'd5;
 
-    reg [31:0] reg_o_proc_rdata, next_reg_o_proc_rdata;
+    reg [31:0] reg_o_proc_rdata;
     reg hit_or_miss;
+    integer idx;
 
-    assign o_mem_cen = (!hit_or_miss) ? 1 : 0;        
-    assign o_mem_wen = (!hit_or_miss && i_proc_wen) ? 1 : 0;        
+    assign o_mem_cen = (!hit_or_miss && i_proc_cen);        
+    assign o_mem_wen = (i_proc_wen && i_proc_cen);        
     assign o_mem_addr = i_proc_addr;      
     assign o_mem_wdata = i_proc_wdata;    
     assign o_proc_rdata = reg_o_proc_rdata;  
@@ -735,14 +736,18 @@ module Cache#(
     assign Index = i_proc_addr[7:2];
 
     // Cache
-    reg         cache_valid[0:63], next_cache_valid[0:63];
-    reg [23:0]  cache_tag[0:63], next_cache_tag[0:63];
-    reg [31:0]  cache_data[0:63], next_cache_data[0:63];
+    reg         cache_valid[0:63];
+    reg         next_cache_valid[0:63];
+    reg [23:0]  cache_tag[0:63];
+    reg [23:0]  next_cache_tag[0:63];
+    reg [31:0]  cache_data[0:63];
+    reg [31:0]  next_cache_data[0:63];
 
 
     always @(*) begin
         case(state)
             S_IDLE : begin
+                // READ instrction
                 if (i_proc_cen && !i_proc_wen) begin
                     // Hit
                     if(cache_valid[Index] && (Tag==cache_tag[Index])) begin
@@ -753,11 +758,13 @@ module Cache#(
                         reg_o_proc_rdata = cache_data[Index];
                         next_state = S_IDLE;
                     end
+                    // Miss
                     else begin
                         hit_or_miss = 0; 
                         next_state = S_READ;
                     end
                 end
+                // WRITE instrction
                 else if (i_proc_cen && i_proc_wen) begin
                     hit_or_miss = 0;
                     next_state = S_WRITE;
@@ -767,17 +774,17 @@ module Cache#(
             // 判斷
             S_READ : begin
                 // Miss
-                    next_cache_valid[Index] = 1;
-                    next_cache_tag[Index] = Tag;
-                    next_cache_data[Index] = (!i_mem_stall) ? i_mem_rdata : cache_data[Index];
-                    next_reg_o_proc_rdata = (!i_mem_stall) ? i_mem_rdata : cache_data[Index];
-                    next_state = (!i_mem_stall) ? S_IDLE : S_READ;
+                next_cache_valid[Index] = 1;
+                next_cache_tag[Index] = Tag;
+                next_cache_data[Index] = (!i_mem_stall) ? i_mem_rdata : 0;
+                reg_o_proc_rdata = (!i_mem_stall) ? i_mem_rdata : 0;
+                next_state = (!i_mem_stall) ? S_IDLE : S_READ;
             end
             S_WRITE : begin
                 next_cache_valid[Index] = 1;
                 next_cache_tag[Index] = Tag;
                 next_cache_data[Index] = i_proc_wdata;
-                next_reg_o_proc_rdata = reg_o_proc_rdata;
+                reg_o_proc_rdata = 0;
                 next_state = (!i_mem_stall) ? S_IDLE : S_WRITE;
             end
             // S_ALLO : begin
@@ -788,17 +795,19 @@ module Cache#(
             //     next_state = (!i_mem_stall) ? S_OUT : S_ALLO;
             // end
 
-            default begin
-                next_cache_valid[Index] = cache_valid[Index];
-                next_cache_tag[Index] = cache_tag[Index];
-                next_cache_data[Index] = cache_data[Index];
-                next_reg_o_proc_rdata = reg_o_proc_rdata;
+            default : begin
+                for (idx=0; idx<64; idx = idx+1) begin
+                    next_cache_valid[idx] = cache_valid[idx];
+                    next_cache_tag[idx] = cache_tag[idx];
+                    next_cache_data[idx] = cache_data[idx];
+                end
+                reg_o_proc_rdata = 0;
                 next_state = S_IDLE;
             end
         endcase
     end
 
-    reg [5:0] idx;
+    
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
             state <= S_IDLE;
@@ -808,6 +817,7 @@ module Cache#(
                 cache_data[idx] <= 32'b0;
             end
             reg_o_proc_rdata <= 0;
+            hit_or_miss <=0;
         end
         else begin
             state <= next_state;
@@ -816,7 +826,6 @@ module Cache#(
                 cache_tag[idx] <= next_cache_tag[idx];
                 cache_data[idx] <= next_cache_data[idx];
             end
-            reg_o_proc_rdata <= next_reg_o_proc_rdata;
         end
     end
     

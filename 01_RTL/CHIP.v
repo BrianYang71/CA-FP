@@ -109,7 +109,7 @@ module CHIP #(                                                                  
         wire reg_write_or_not;
         // wire Reg_write;
         reg Reg_write;
-
+        reg out;
     // Memory associated
         wire [31:0] rs1_data;
         wire [31:0] rs2_data;
@@ -121,7 +121,7 @@ module CHIP #(                                                                  
 
     // TODO: any wire assignment
         assign o_IMEM_addr = PC;
-        assign o_IMEM_cen = (s != `s_OUT) ? 1 : 0;
+        assign o_IMEM_cen = 1;
         assign o_DMEM_cen = (mem_write | mem_read) && (s==`s_READ || s==`s_WRITE);
         assign o_DMEM_wen = mem_write && (s==`s_READ || s==`s_WRITE);
         assign o_DMEM_addr = (mem_to_reg  == `MEM2REG_MEM) ? (rs1_data + IMMGen_out) : 0;
@@ -237,15 +237,26 @@ module CHIP #(                                                                  
                     Reg_write = 0;
                     // next_s = `s_MEMORY;
                     next_s = (mem_read) ? `s_READ : `s_WRITE;
+                    out = 0;
                 end
                 else begin
                     Reg_write = 0;
                     if(alu_ctrl == `MUL) begin
-                        next_s = `s_ALU;
+                        if(!i_DMEM_stall && alu_ready) begin
+                            Reg_write = reg_write_or_not;
+                            next_s = `s_INSTRU;
+                            out = 1;
+                        end
+                        else begin
+                            Reg_write = 0;
+                            next_s = `s_INSTRU;
+                            out = 0;
+                        end
                     end
                     else begin
                         Reg_write = reg_write_or_not;
-                        next_s = `s_OUT;
+                        next_s = `s_INSTRU;
+                        out = 1;
                     end
                 end
             end
@@ -256,40 +267,45 @@ module CHIP #(                                                                  
             `s_WRITE : begin
                 if(!i_DMEM_stall) begin
                     Reg_write = reg_write_or_not;
-                    next_s = `s_OUT;
+                    next_s = `s_INSTRU;
+                    out = 1;
                 end
                 else begin
                     Reg_write = 0;
                     next_s = `s_WRITE;
+                    out = 0;
                 end
             end
             `s_READ :  begin
                 if(!i_DMEM_stall) begin
                     Reg_write = reg_write_or_not;
-                    next_s = `s_OUT;
+                    next_s = `s_INSTRU;
+                    out = 1;
                 end
                 else begin
                     Reg_write = 0;
                     next_s = `s_READ;
+                    out = 0;
                 end
             end
-            `s_ALU : begin
-                if(!i_DMEM_stall && alu_ready) begin
-                    Reg_write = reg_write_or_not;
-                    next_s = `s_OUT;
-                end
-                else begin
-                    Reg_write = 0;
-                    next_s = `s_ALU;
-                end
-            end
-            `s_OUT : begin
-                Reg_write = 0;
-                next_s = `s_INSTRU;
-            end
+            // `s_ALU : begin
+            //     if(!i_DMEM_stall && alu_ready) begin
+            //         Reg_write = reg_write_or_not;
+            //         next_s = `s_OUT;
+            //     end
+            //     else begin
+            //         Reg_write = 0;
+            //         next_s = `s_ALU;
+            //     end
+            // end
+            // `s_OUT : begin
+            //     Reg_write = 0;
+            //     next_s = `s_INSTRU;
+            // end
             default : begin
                 Reg_write = 0;
                 next_s = `s_INSTRU;
+                out = 0;
             end
         endcase
     end
@@ -307,7 +323,7 @@ module CHIP #(                                                                  
 
     // Setting PC value 
     always @(*) begin   
-        if (!o_IMEM_cen) begin     
+        if (out) begin     
             case(pc_ctrl)
                 `PCCTRL_PC_PLUS_4 : next_PC = PC + 4;
                 `PCCTRL_PC_PLUS_IMM : next_PC = (if_jump || opcode==`UJ_JAL || opcode==`I_JALR) ? (PC + IMMGen_out) : (PC + 4);
